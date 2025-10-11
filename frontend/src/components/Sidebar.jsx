@@ -1,6 +1,5 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/router';
 import { useAuth } from '../lib/auth';
 import { 
   HomeIcon, 
@@ -22,8 +21,8 @@ const navigation = [
 ];
 
 export default function Sidebar({ user, isOpen, onToggle }) {
-  const router = useRouter();
   const [collapsed, setCollapsed] = useState(false);
+  const [currentPath, setCurrentPath] = useState('/');
   const { 
     canViewAssets, 
     canCreateUser, 
@@ -32,8 +31,12 @@ export default function Sidebar({ user, isOpen, onToggle }) {
     hasRole 
   } = useAuth();
 
-  // Safe router pathname access
-  const currentPath = router?.pathname || '/';
+  // Get current path client-side only
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      setCurrentPath(window.location.pathname);
+    }
+  }, []);
 
   const filteredNavigation = navigation.filter(item => {
     // Dashboard is always accessible
