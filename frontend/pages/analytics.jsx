@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
 import { useQuery } from 'react-query';
-import { useRouter } from 'next/router';
 import { useSocket } from '../src/lib/socket';
 import { useMQTTStatus } from '../src/hooks/useMQTTStatus';
 import { cranesAPI } from '../src/lib/api';
@@ -11,7 +10,6 @@ export default function Analytics() {
   const { user, loading } = useAuth();
   const { connected: wsConnected } = useSocket();
   const { connected: mqttConnected } = useMQTTStatus();
-  const router = useRouter();
   const [selectedCrane, setSelectedCrane] = useState(null);
   const [analyticsData, setAnalyticsData] = useState(null);
   const [loadingAnalytics, setLoadingAnalytics] = useState(false);
@@ -25,15 +23,12 @@ export default function Analytics() {
     );
   }
 
-  // Redirect non-admin/manager users
-  if (user.role !== 'admin' && user.role !== 'manager') {
-    router.push('/');
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-32 w-32 border-4 border-cyan-500/30 border-t-cyan-400"></div>
-      </div>
-    );
-  }
+  // Redirect non-admin/manager users (client-side only)
+  useEffect(() => {
+    if (typeof window !== 'undefined' && user && user.role !== 'admin' && user.role !== 'manager') {
+      window.location.href = '/';
+    }
+  }, [user]);
 
   // Fetch cranes data
   const { data: cranesData, isLoading: cranesLoading } = useQuery(
@@ -143,7 +138,7 @@ export default function Analytics() {
           <div className="flex justify-between items-center py-4">
             <div className="flex items-center space-x-4">
               <button
-                onClick={() => router.push('/')}
+                onClick={() => { if (typeof window !== 'undefined') window.location.href = '/'; }}
                 className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
               >
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">

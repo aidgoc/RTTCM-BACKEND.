@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { ticketsAPI } from '../src/lib/api';
 import { 
@@ -12,8 +11,7 @@ import {
 } from '@heroicons/react/24/outline';
 
 export default function CraneTickets() {
-  const router = useRouter();
-  const { craneId } = router.query;
+  const craneId = typeof window !== 'undefined' ? (new URLSearchParams(window.location.search).get('craneId')) : undefined;
   const [ticketData, setTicketData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);

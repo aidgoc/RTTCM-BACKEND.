@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { useRouter } from 'next/router';
 import { useAuth } from '../src/lib/auth';
 import toast from 'react-hot-toast';
 import Link from 'next/link';
@@ -14,7 +13,6 @@ export default function Signup() {
   });
   const [loading, setLoading] = useState(false);
   const { signup } = useAuth();
-  const router = useRouter();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -36,7 +34,7 @@ export default function Signup() {
       
       if (result.success) {
         toast.success('Account created successfully!');
-        router.push('/');
+        if (typeof window !== 'undefined') window.location.href = '/';
       } else {
         toast.error(result.error);
       }

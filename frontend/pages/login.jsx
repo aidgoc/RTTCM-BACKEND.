@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { useRouter } from 'next/router';
 import { useAuth } from '../src/lib/auth';
 import toast from 'react-hot-toast';
 import Link from 'next/link';
@@ -11,7 +10,6 @@ export default function Login() {
   });
   const [loading, setLoading] = useState(false);
   const { login } = useAuth();
-  const router = useRouter();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -22,7 +20,7 @@ export default function Login() {
       
       if (result.success) {
         toast.success('Login successful!');
-        router.push('/');
+        if (typeof window !== 'undefined') window.location.href = '/';
       } else {
         toast.error(result.error);
       }

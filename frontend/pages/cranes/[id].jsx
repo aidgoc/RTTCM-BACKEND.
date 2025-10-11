@@ -16,7 +16,7 @@ import {
 
 export default function CraneDetail() {
   const router = useRouter();
-  const { id } = router.query;
+  const id = typeof window !== 'undefined' ? (router.query?.id || new URLSearchParams(window.location.search).get('id')) : undefined;
   const { connected } = useSocket();
   const [realTimeData, setRealTimeData] = useState(null);
 

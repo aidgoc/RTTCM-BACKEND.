@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useQueryClient } from 'react-query';
-import { useRouter } from 'next/router';
 import { useSocket } from '../src/lib/socket';
 import { useMQTTStatus } from '../src/hooks/useMQTTStatus';
 import { cranesAPI, ticketsAPI, craneAssignmentAPI, usersAPI } from '../src/lib/api';
@@ -19,7 +18,6 @@ export default function Dashboard() {
   const { user, loading, canCreateCranes, checkAuth } = useAuth();
   const { connected: wsConnected } = useSocket();
   const { connected: mqttConnected } = useMQTTStatus();
-  const router = useRouter();
   const queryClient = useQueryClient();
   const [cranes, setCranes] = useState([]);
   const [lastRefresh, setLastRefresh] = useState(new Date());
@@ -44,25 +42,12 @@ export default function Dashboard() {
     );
   }
 
-  // Redirect supervisors to their dedicated page
-  if (user.role === 'supervisor') {
-    router.push('/supervisor');
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-32 w-32 border-4 border-cyan-500/30 border-t-cyan-400"></div>
-      </div>
-    );
-  }
-
-  // Redirect operators to their dedicated page
-  if (user.role === 'operator') {
-    router.push('/operator');
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-32 w-32 border-4 border-cyan-500/30 border-t-cyan-400"></div>
-      </div>
-    );
-  }
+  // Client-side role redirects to avoid SSR router usage
+  useEffect(() => {
+    if (typeof window === 'undefined' || !user) return;
+    if (user.role === 'supervisor') window.location.href = '/supervisor';
+    if (user.role === 'operator') window.location.href = '/operator';
+  }, [user]);
 
   // Fetch cranes data with 10-second refresh
   const { data: cranesData, isLoading: cranesLoading, refetch: refetchCranes } = useQuery(
@@ -244,7 +229,7 @@ export default function Dashboard() {
     console.log('Analytics clicked for crane:', crane?.craneId);
     // Store selected crane in sessionStorage for analytics page
     sessionStorage.setItem('selectedCraneId', crane.craneId);
-    router.push('/analytics');
+    if (typeof window !== 'undefined') window.location.href = '/analytics';
   };
 
   // Close modals
