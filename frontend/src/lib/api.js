@@ -26,9 +26,18 @@ api.interceptors.request.use(
 api.interceptors.response.use(
   (response) => response,
   (error) => {
+    // Handle network errors gracefully
+    if (!error.response) {
+      console.warn('API connection error - backend might be unavailable');
+      // Don't reject for network errors in production to prevent crashes
+      if (process.env.NODE_ENV === 'production') {
+        return Promise.resolve({ data: null, error: 'Network error' });
+      }
+    }
+    
     if (error.response?.status === 401) {
       // Redirect to login on unauthorized
-      if (typeof window !== 'undefined') {
+      if (typeof window !== 'undefined' && !window.location.pathname.includes('/login')) {
         window.location.href = '/login';
       }
     }
