@@ -9,6 +9,10 @@ const nextConfig = {
     NEXT_PUBLIC_API_URL: API_URL,
     NEXT_PUBLIC_WS_URL: WS_URL,
   },
+  // Disable static optimization to avoid router errors during build
+  experimental: {
+    esmExternals: 'loose',
+  },
   async rewrites() {
     return [
       {

@@ -32,6 +32,9 @@ export default function Sidebar({ user, isOpen, onToggle }) {
     hasRole 
   } = useAuth();
 
+  // Safe router pathname access
+  const currentPath = router?.pathname || '/';
+
   const filteredNavigation = navigation.filter(item => {
     // Dashboard is always accessible
     if (item.name === 'Dashboard') return true;
@@ -106,7 +109,7 @@ export default function Sidebar({ user, isOpen, onToggle }) {
 
         <nav className="mt-5 px-2 space-y-1">
           {filteredNavigation.map((item) => {
-            const isActive = router.pathname === item.href;
+            const isActive = currentPath === item.href;
             return (
               <Link
                 key={item.name}
