@@ -2,6 +2,7 @@
   "dependencies": {
     "aedes": "^0.51.3",
     "axios": "^1.12.2",
+    "mongoose": "^8.19.1",
     "ws": "^8.18.3"
   }
 }
