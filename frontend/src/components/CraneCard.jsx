@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/router';
 import { 
   CheckCircleIcon, 
   XCircleIcon, 
@@ -15,11 +14,10 @@ import {
 
 export default function CraneCard({ crane, userRole, onAssign }) {
   const [isHovered, setIsHovered] = useState(false);
-  const router = useRouter();
   
   const handleTicketClick = () => {
     // Navigate to dedicated tickets page
-    router.push(`/crane-tickets?craneId=${crane.craneId}`);
+    window.location.href = `/crane-tickets?craneId=${crane.craneId}`;
   };
   
   const getStatusColor = (status) => {

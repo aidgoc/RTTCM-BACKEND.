@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/router';
 import { QueryClient, QueryClientProvider } from 'react-query';
 import { Toaster } from 'react-hot-toast';
 import Sidebar from './Sidebar';
@@ -22,9 +21,9 @@ const queryClient = new QueryClient({
 function LayoutContent({ children }) {
   const { user, loading } = useAuth();
   const { theme } = useTheme();
-  const router = useRouter();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
+  const [currentPath, setCurrentPath] = useState('/');
 
   // Update time every second
   useEffect(() => {
@@ -35,12 +34,20 @@ function LayoutContent({ children }) {
     return () => clearInterval(timer);
   }, []);
 
+  // Get current path client-side only
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      setCurrentPath(window.location.pathname);
+    }
+  }, []);
+
   // Redirect to login if not authenticated
   useEffect(() => {
-    if (!loading && !user && router.pathname !== '/login' && router.pathname !== '/signup') {
-      router.push('/login');
+    if (typeof window !== 'undefined' && !loading && !user && 
+        currentPath !== '/login' && currentPath !== '/signup') {
+      window.location.href = '/login';
     }
-  }, [user, loading, router]);
+  }, [user, loading, currentPath]);
 
   // Show loading spinner while checking authentication
   if (loading) {
@@ -55,7 +62,7 @@ function LayoutContent({ children }) {
   }
 
   // Show login/signup pages without layout
-  if (!user || router.pathname === '/login' || router.pathname === '/signup') {
+  if (!user || currentPath === '/login' || currentPath === '/signup') {
     return (
       <div className="min-h-screen">
         {children}

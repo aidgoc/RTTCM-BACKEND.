@@ -1,12 +1,10 @@
 import { useState, useMemo } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/router';
 import { StatusBadge, StatusIcon, TimeDisplay } from '../common';
 import { formatLoad, formatUtilization, getStatusConfig } from '../../utils/formatters';
 
 export default function CraneCard({ crane, userRole, onAssign }) {
   const [isHovered, setIsHovered] = useState(false);
-  const router = useRouter();
   
   // Memoized calculations to prevent re-computation
   const statusConfig = useMemo(() => getStatusConfig(crane), [crane]);
@@ -19,7 +17,7 @@ export default function CraneCard({ crane, userRole, onAssign }) {
     })), [crane]
   );
 
-  const handleTicketClick = () => router.push(`/crane-tickets?craneId=${crane.craneId}`);
+  const handleTicketClick = () => window.location.href = `/crane-tickets?craneId=${crane.craneId}`;
 
   return (
     <div 
