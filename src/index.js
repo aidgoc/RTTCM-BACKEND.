@@ -351,11 +351,11 @@ const generalLimiter = rateLimit({
 
 // Strict rate limiter for authentication endpoints
 const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 5, // 5 attempts per 15 minutes
+  windowMs: 2 * 60 * 1000, // 2 minutes
+  max: 5, // 5 attempts per 2 minutes
   message: {
     error: 'Too many authentication attempts',
-    retryAfter: 900, // 15 minutes
+    retryAfter: 120, // 2 minutes in seconds
     timestamp: new Date().toISOString()
   },
   standardHeaders: true,
@@ -371,8 +371,8 @@ const authLimiter = rateLimit({
     
     res.status(429).json({
       error: 'Too many authentication attempts',
-      message: 'Please wait 15 minutes before trying again.',
-      retryAfter: 900,
+      message: 'Please wait 2 minutes before trying again.',
+      retryAfter: 120,
       timestamp: new Date().toISOString()
     });
   }
