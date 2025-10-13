@@ -1,6 +1,8 @@
 import { createContext, useContext, useEffect, useState } from 'react';
 import axios from 'axios';
 
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+
 const AuthContext = createContext({});
 
 export function AuthProvider({ children }) {
@@ -13,7 +15,7 @@ export function AuthProvider({ children }) {
 
   const checkAuth = async () => {
     try {
-      const response = await axios.get('/api/auth/me', {
+      const response = await axios.get(`${API_BASE_URL}/api/auth/me`, {
         withCredentials: true,
       });
       setUser(response.data.user);
@@ -26,7 +28,7 @@ export function AuthProvider({ children }) {
 
   const login = async (email, password) => {
     try {
-      const response = await axios.post('/api/auth/login', {
+      const response = await axios.post(`${API_BASE_URL}/api/auth/login`, {
         email,
         password,
       }, {
@@ -45,7 +47,8 @@ export function AuthProvider({ children }) {
 
   const signup = async (name, email, password, role = 'operator') => {
     try {
-      const response = await axios.post('/api/auth/signup', {
+      console.log('Signup request starting...', { name, email, role, url: `${API_BASE_URL}/api/auth/signup` });
+      const response = await axios.post(`${API_BASE_URL}/api/auth/signup`, {
         name,
         email,
         password,
@@ -54,9 +57,11 @@ export function AuthProvider({ children }) {
         withCredentials: true,
       });
       
+      console.log('Signup response:', response.data);
       setUser(response.data.user);
       return { success: true, user: response.data.user };
     } catch (error) {
+      console.error('Signup error:', error.response?.data || error.message);
       return { 
         success: false, 
         error: error.response?.data?.error || 'Registration failed' 
@@ -66,7 +71,7 @@ export function AuthProvider({ children }) {
 
   const logout = async () => {
     try {
-      await axios.post('/api/auth/logout', {}, {
+      await axios.post(`${API_BASE_URL}/api/auth/logout`, {}, {
         withCredentials: true,
       });
     } catch (error) {
