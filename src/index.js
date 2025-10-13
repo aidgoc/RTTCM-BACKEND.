@@ -504,6 +504,20 @@ io.on('connection', (socket) => {
 // Make io available to other modules
 app.set('io', io);
 
+// Root endpoint (for health checkers and browsers)
+app.get('/', (req, res) => {
+  res.json({
+    service: 'Tower Dynamics API',
+    version: '1.0.0',
+    status: 'running',
+    endpoints: {
+      health: '/health',
+      api: '/api/*'
+    },
+    timestamp: new Date().toISOString()
+  });
+});
+
 // Error handling middleware
 app.use(errorHandler);
 
