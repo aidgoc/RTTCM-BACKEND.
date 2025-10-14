@@ -71,20 +71,11 @@ const requestSizeLimiter = (req, res, next) => {
 const userAgentValidator = (req, res, next) => {
   const userAgent = req.get('User-Agent');
   
-  // Block requests with suspicious or missing User-Agent
-  if (!userAgent || userAgent.length < 10) {
-    logger.warn('Suspicious User-Agent detected', {
-      ip: req.ip,
-      userAgent: userAgent,
-      path: req.path,
-      timestamp: new Date().toISOString()
-    });
-    
-    return res.status(400).json({
-      error: 'Invalid Request',
-      message: 'User-Agent header is required and must be valid',
-      timestamp: new Date().toISOString()
-    });
+  // Allow missing User-Agent from legitimate clients (axios, fetch, browsers)
+  // Only block if it exists and is malicious
+  if (!userAgent) {
+    // Allow requests without User-Agent (common in API clients)
+    return next();
   }
   
   // Block known malicious User-Agents

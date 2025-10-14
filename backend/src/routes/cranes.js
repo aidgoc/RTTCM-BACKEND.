@@ -1121,4 +1121,58 @@ router.post('/pending/:craneId/reject', authenticateToken, requirePermission('cr
   }
 });
 
+/**
+ * GET /api/cranes/:craneId/test-history
+ * Get test history for a specific crane
+ */
+router.get('/:craneId/test-history', authenticateToken, canAccessCrane(), async (req, res) => {
+  const startTime = Date.now();
+  try {
+    const { craneId } = req.params;
+    const { limit = 10 } = req.query;
+
+    console.log(`[Test History] Fetching for crane ${craneId}...`);
+    const queryStart = Date.now();
+    
+    // Fetch test telemetry records (where operatingMode is 'test')
+    const tests = await Telemetry.find({
+      craneId,
+      operatingMode: 'test'
+    })
+    .sort({ ts: -1 })
+    .limit(parseInt(limit))
+    .select('ts testType testResults ls1 ls2 ls3 ls4')
+    .lean();
+
+    const queryTime = Date.now() - queryStart;
+    console.log(`[Test History] Query took ${queryTime}ms, found ${tests.length} tests`);
+
+    // Format the response
+    const formattedTests = tests.map(test => ({
+      id: test._id,
+      timestamp: test.ts,
+      testType: test.testType || 'unknown',
+      testResults: test.testResults || {
+        ls1: test.ls1,
+        ls2: test.ls2,
+        ls3: test.ls3,
+        ls4: test.ls4
+      },
+      status: 'completed'
+    }));
+
+    const totalTime = Date.now() - startTime;
+    console.log(`[Test History] Total request time: ${totalTime}ms`);
+
+    res.json({
+      craneId,
+      tests: formattedTests,
+      total: formattedTests.length
+    });
+  } catch (error) {
+    console.error('Fetch test history error:', error);
+    res.status(500).json({ error: 'Failed to fetch test history' });
+  }
+});
+
 module.exports = router;
