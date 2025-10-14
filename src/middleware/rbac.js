@@ -211,6 +211,11 @@ const canAccessCrane = (craneIdParam = 'craneId') => {
       return res.status(400).json({ error: 'Crane ID required' });
     }
 
+    // Admin can access all cranes
+    if (req.user.role === 'admin') {
+      return next();
+    }
+
     const accessibleCranes = req.user.getAccessibleCranes();
     if (!accessibleCranes.includes(craneId)) {
       auditLog('CRANE_ACCESS_DENIED', req, { 

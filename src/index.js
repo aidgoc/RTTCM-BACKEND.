@@ -476,7 +476,20 @@ app.get('/api/mqtt/status', (req, res) => {
 
 // Socket.IO authentication middleware
 io.use((socket, next) => {
-  const token = socket.handshake.auth.token;
+  // Try to get token from cookie (httpOnly)
+  const cookieHeader = socket.handshake.headers.cookie;
+  if (!cookieHeader) {
+    return next(new Error('Authentication error'));
+  }
+  
+  // Parse cookie header to extract token
+  const cookies = cookieHeader.split(';').reduce((acc, cookie) => {
+    const [key, value] = cookie.trim().split('=');
+    acc[key] = value;
+    return acc;
+  }, {});
+  
+  const token = cookies.token;
   if (!token) {
     return next(new Error('Authentication error'));
   }
