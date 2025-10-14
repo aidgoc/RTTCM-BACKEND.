@@ -8,7 +8,7 @@ import FleetSummary from '../src/components/FleetSummary';
 import CraneCardModal from '../src/components/CraneCardModal';
 import CraneForm from '../src/components/forms/CraneForm';
 import AlarmManager from '../src/components/AlarmManager';
-import TestModeInterface from '../src/components/TestModeInterface';
+import TestResultsViewer from '../src/components/TestModeInterface';
 import PendingCranesManager from '../src/components/PendingCranesManager';
 import MapView from '../src/components/MapView';
 import { useAuth } from '../src/lib/auth';
@@ -16,7 +16,14 @@ import toast from 'react-hot-toast';
 
 export default function Dashboard() {
   const { user, loading, canCreateCranes, checkAuth } = useAuth();
-  const { connected: wsConnected } = useSocket();
+  const { 
+    connected: wsConnected,
+    subscribeToAllTelemetry,
+    subscribeToAllTickets,
+    subscribeToCraneCreated,
+    subscribeToCraneUpdated,
+    subscribeToCraneApproved
+  } = useSocket();
   const { connected: mqttConnected } = useMQTTStatus();
   const queryClient = useQueryClient();
   const [cranes, setCranes] = useState([]);
@@ -258,9 +265,9 @@ export default function Dashboard() {
 
   // Set global function for crane cards
   useEffect(() => {
-    window.openTestMode = handleOpenTestMode;
+    window.openTestResults = handleOpenTestMode;
     return () => {
-      delete window.openTestMode;
+      delete window.openTestResults;
     };
   }, []);
 
@@ -268,7 +275,7 @@ export default function Dashboard() {
   useEffect(() => {
     if (!wsConnected) return;
 
-    const unsubscribeTelemetry = useSocket().subscribeToAllTelemetry((data) => {
+    const unsubscribeTelemetry = subscribeToAllTelemetry((data) => {
       // Update crane data in real-time
       setCranes(prevCranes => 
         prevCranes.map(crane => 
@@ -284,13 +291,13 @@ export default function Dashboard() {
       }
     });
 
-    const unsubscribeTickets = useSocket().subscribeToAllTickets((data) => {
+    const unsubscribeTickets = subscribeToAllTickets((data) => {
       // Refresh tickets data when new tickets are created
       refetchCranes();
       toast.error(`New ${data.ticket.severity} alert: ${data.ticket.message}`);
     });
 
-    const unsubscribeCraneCreated = useSocket().subscribeToCraneCreated((data) => {
+    const unsubscribeCraneCreated = subscribeToCraneCreated((data) => {
       console.log('New crane created via WebSocket:', data);
       
       // Check if the user can see this crane based on their role and assignments
@@ -318,7 +325,7 @@ export default function Dashboard() {
       }
     });
 
-    const unsubscribeCraneUpdated = useSocket().subscribeToCraneUpdated((data) => {
+    const unsubscribeCraneUpdated = subscribeToCraneUpdated((data) => {
       console.log('Crane updated via WebSocket:', data);
       
       // Check if the user can see this crane
@@ -343,7 +350,7 @@ export default function Dashboard() {
       }
     });
 
-    const unsubscribeCraneApproved = useSocket().subscribeToCraneApproved((data) => {
+    const unsubscribeCraneApproved = subscribeToCraneApproved((data) => {
       console.log('Crane approved via WebSocket:', data);
       
       // Check if the user can see this crane
@@ -378,7 +385,7 @@ export default function Dashboard() {
       unsubscribeCraneUpdated();
       unsubscribeCraneApproved();
     };
-  }, [wsConnected, refetchCranes]);
+  }, [wsConnected, refetchCranes, subscribeToAllTelemetry, subscribeToAllTickets, subscribeToCraneCreated, subscribeToCraneUpdated, subscribeToCraneApproved]);
 
   // Calculate fleet summary
   const fleetSummary = {
@@ -793,9 +800,9 @@ export default function Dashboard() {
       {/* Alarm Manager */}
       <AlarmManager />
 
-      {/* Test Mode Interface */}
+      {/* Test Results Viewer */}
       {showTestMode && testCraneId && (
-        <TestModeInterface
+        <TestResultsViewer
           craneId={testCraneId}
           onClose={handleCloseTestMode}
         />

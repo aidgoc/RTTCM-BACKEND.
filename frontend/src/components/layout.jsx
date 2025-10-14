@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react';
-import { QueryClient, QueryClientProvider } from 'react-query';
 import { Toaster } from 'react-hot-toast';
 import Sidebar from './Sidebar';
 import TopBar from './TopBar';
@@ -8,15 +7,6 @@ import { SocketProvider } from '../lib/socket';
 import MQTTStatus from './MQTTStatus';
 import { useTheme } from '../contexts/ThemeContext';
 import { ClockIcon } from '@heroicons/react/24/outline';
-
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      refetchOnWindowFocus: false,
-      retry: 1,
-    },
-  },
-});
 
 function LayoutContent({ children }) {
   const { user, loading } = useAuth();
@@ -194,22 +184,20 @@ function LayoutContent({ children }) {
 
 export default function Layout({ children }) {
   return (
-    <QueryClientProvider client={queryClient}>
-      <AuthProvider>
-        <SocketProvider>
-          <LayoutContent>{children}</LayoutContent>
-          <Toaster 
-            position="top-right"
-            toastOptions={{
-              duration: 4000,
-              style: {
-                background: '#363636',
-                color: '#fff',
-              },
-            }}
-          />
-        </SocketProvider>
-      </AuthProvider>
-    </QueryClientProvider>
+    <AuthProvider>
+      <SocketProvider>
+        <LayoutContent>{children}</LayoutContent>
+        <Toaster 
+          position="top-right"
+          toastOptions={{
+            duration: 4000,
+            style: {
+              background: '#363636',
+              color: '#fff',
+            },
+          }}
+        />
+      </SocketProvider>
+    </AuthProvider>
   );
 }

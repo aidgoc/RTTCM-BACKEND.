@@ -328,19 +328,19 @@ export default function CraneCard({ crane, userRole, onAssign }) {
             </Link>
             
             <div className="flex items-center space-x-2">
-              {/* Test Mode button for managers/admins */}
+              {/* Test Results button for managers/admins */}
               {(userRole === 'manager' || userRole === 'admin') && (
                 <button
                   onClick={() => {
-                    // This would open the test mode interface
+                    // This would open the test results viewer
                     // You'll need to pass a callback from parent component
-                    if (window.openTestMode) {
-                      window.openTestMode(crane.craneId);
+                    if (window.openTestResults) {
+                      window.openTestResults(crane.craneId);
                     }
                   }}
-                  className="px-3 py-1 text-xs font-medium text-white bg-purple-600 hover:bg-purple-700 rounded-md transition-colors duration-200 hover:scale-105"
+                  className="px-3 py-1 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors duration-200 hover:scale-105"
                 >
-                  Test Mode
+                  Test Results
                 </button>
               )}
               

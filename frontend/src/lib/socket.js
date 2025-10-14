@@ -20,6 +20,7 @@ export function SocketProvider({ children }) {
         autoConnect: true, // Auto-connect to establish WebSocket connection
         timeout: 10000, // 10 second timeout
         forceNew: true, // Force new connection
+        withCredentials: true, // Send cookies with WebSocket connection
       });
 
       newSocket.on('connect', () => {

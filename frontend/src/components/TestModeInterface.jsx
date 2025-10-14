@@ -1,32 +1,71 @@
 import React, { useState, useEffect } from 'react';
 import { useSocket } from '../lib/socket';
+import { cranesAPI } from '../lib/api';
 import { 
-  PlayIcon, 
-  StopIcon, 
   CheckCircleIcon, 
   XCircleIcon,
   ClockIcon,
-  WrenchScrewdriverIcon
+  WrenchScrewdriverIcon,
+  DocumentChartBarIcon
 } from '@heroicons/react/24/outline';
 
-const TestModeInterface = ({ craneId, onClose }) => {
-  const [isTestRunning, setIsTestRunning] = useState(false);
-  const [testType, setTestType] = useState('limit_switch_test');
+const TestResultsViewer = ({ craneId, onClose }) => {
   const [testResults, setTestResults] = useState(null);
   const [testHistory, setTestHistory] = useState([]);
+  const [loading, setLoading] = useState(true);
   const { socket } = useSocket();
 
+  // Fetch test history from backend
+  useEffect(() => {
+    const fetchTestHistory = async () => {
+      try {
+        console.log(`[TestResults] Fetching test history for crane: ${craneId}`);
+        setLoading(true);
+        
+        const response = await cranesAPI.getTestHistory(craneId);
+        console.log('[TestResults] API Response:', response);
+        
+        if (response.data) {
+          console.log('[TestResults] Test data:', response.data);
+          setTestHistory(response.data.tests || []);
+          // Set the most recent test as current result
+          if (response.data.tests && response.data.tests.length > 0) {
+            setTestResults(response.data.tests[0].testResults);
+            console.log('[TestResults] Latest test results:', response.data.tests[0].testResults);
+          } else {
+            console.log('[TestResults] No test data found');
+          }
+        }
+      } catch (error) {
+        console.error('[TestResults] Error fetching test history:', error);
+        console.error('[TestResults] Error details:', error.response?.data || error.message);
+        
+        // Show error to user
+        if (error.response?.status === 403) {
+          console.error('[TestResults] Access denied - 403 Forbidden');
+        } else if (error.response?.status === 401) {
+          console.error('[TestResults] Not authenticated - 401 Unauthorized');
+        }
+      } finally {
+        console.log('[TestResults] Loading complete');
+        setLoading(false);
+      }
+    };
+
+    fetchTestHistory();
+  }, [craneId]);
+
+  // Listen for real-time test updates from MQTT
   useEffect(() => {
     if (!socket) return;
 
     const handleTestCompleted = (data) => {
       if (data.craneId === craneId) {
-        setIsTestRunning(false);
         setTestResults(data.testResults);
         setTestHistory(prev => [{
           id: Date.now(),
           testType: data.testType,
-          results: data.testResults,
+          testResults: data.testResults,
           timestamp: data.timestamp,
           status: 'completed'
         }, ...prev.slice(0, 9)]); // Keep last 10 tests
@@ -40,35 +79,6 @@ const TestModeInterface = ({ craneId, onClose }) => {
     };
   }, [socket, craneId]);
 
-  const startTest = () => {
-    if (!socket) return;
-
-    setIsTestRunning(true);
-    setTestResults(null);
-
-    // Send test command via MQTT (this would be handled by backend)
-    socket.emit('crane:start_test', {
-      craneId,
-      testType,
-      timestamp: new Date().toISOString()
-    });
-
-    // Add to history as started
-    setTestHistory(prev => [{
-      id: Date.now(),
-      testType,
-      results: null,
-      timestamp: new Date().toISOString(),
-      status: 'running'
-    }, ...prev.slice(0, 9)]);
-  };
-
-  const stopTest = () => {
-    if (!socket) return;
-
-    setIsTestRunning(false);
-    socket.emit('crane:stop_test', { craneId });
-  };
 
   const getTestIcon = (testType) => {
     switch (testType) {
@@ -112,9 +122,9 @@ const TestModeInterface = ({ craneId, onClose }) => {
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-600">
           <div className="flex items-center space-x-3">
-            <WrenchScrewdriverIcon className="h-6 w-6 text-blue-500" />
+            <DocumentChartBarIcon className="h-6 w-6 text-blue-500" />
             <h2 className="text-xl font-bold text-gray-900 dark:text-white">
-              DRM3300 Test Mode - Crane {craneId}
+              Test Results - Crane {craneId}
             </h2>
           </div>
           <button
@@ -126,64 +136,31 @@ const TestModeInterface = ({ craneId, onClose }) => {
         </div>
 
         <div className="p-6 space-y-6">
-          {/* Test Controls */}
-          <div className="bg-gray-50 dark:bg-gray-700 rounded-lg p-4">
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-              Test Controls
-            </h3>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Info Notice */}
+          <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-lg p-4">
+            <div className="flex items-start space-x-2">
+              <WrenchScrewdriverIcon className="h-5 w-5 text-blue-600 dark:text-blue-400 mt-0.5" />
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Test Type
-                </label>
-                <select
-                  value={testType}
-                  onChange={(e) => setTestType(e.target.value)}
-                  disabled={isTestRunning}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-600 dark:text-white"
-                >
-                  <option value="limit_switch_test">Limit Switch Test</option>
-                  <option value="sli_test">Safe Load Indicator Test</option>
-                  <option value="system_test">System Test</option>
-                </select>
-              </div>
-
-              <div className="flex items-end space-x-2">
-                {!isTestRunning ? (
-                  <button
-                    onClick={startTest}
-                    className="flex items-center space-x-2 bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 transition-colors"
-                  >
-                    <PlayIcon className="h-4 w-4" />
-                    <span>Start Test</span>
-                  </button>
-                ) : (
-                  <button
-                    onClick={stopTest}
-                    className="flex items-center space-x-2 bg-red-600 text-white px-4 py-2 rounded-md hover:bg-red-700 transition-colors"
-                  >
-                    <StopIcon className="h-4 w-4" />
-                    <span>Stop Test</span>
-                  </button>
-                )}
+                <h4 className="text-sm font-semibold text-blue-800 dark:text-blue-200 mb-1">
+                  Hardware-Initiated Tests Only
+                </h4>
+                <p className="text-sm text-blue-700 dark:text-blue-300">
+                  All tests must be initiated from the DRM3300 device. Results will appear here automatically in real-time via MQTT.
+                </p>
               </div>
             </div>
-
-            {isTestRunning && (
-              <div className="mt-4 p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-700 rounded-md">
-                <div className="flex items-center space-x-2">
-                  <ClockIcon className="h-5 w-5 text-yellow-600" />
-                  <span className="text-sm font-medium text-yellow-800 dark:text-yellow-200">
-                    Test in progress... Please wait for completion.
-                  </span>
-                </div>
-              </div>
-            )}
           </div>
 
+          {/* Loading State */}
+          {loading && (
+            <div className="flex items-center justify-center py-8">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+              <span className="ml-3 text-gray-600 dark:text-gray-400">Loading test results...</span>
+            </div>
+          )}
+
           {/* Current Test Results */}
-          {testResults && (
+          {!loading && testResults && (
             <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg p-4">
               <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
                 Latest Test Results
@@ -214,16 +191,17 @@ const TestModeInterface = ({ craneId, onClose }) => {
           )}
 
           {/* Test History */}
-          <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg p-4">
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-              Test History
-            </h3>
-            
-            {testHistory.length === 0 ? (
-              <p className="text-gray-500 dark:text-gray-400 text-center py-4">
-                No tests performed yet
-              </p>
-            ) : (
+          {!loading && (
+            <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg p-4">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+                Test History
+              </h3>
+              
+              {testHistory.length === 0 ? (
+                <p className="text-gray-500 dark:text-gray-400 text-center py-4">
+                  No tests performed yet. Tests initiated from the DRM3300 device will appear here.
+                </p>
+              ) : (
               <div className="space-y-2">
                 {testHistory.map((test) => (
                   <div key={test.id} className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
@@ -249,11 +227,12 @@ const TestModeInterface = ({ craneId, onClose }) => {
                 ))}
               </div>
             )}
-          </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
   );
 };
 
-export default TestModeInterface;
+export default TestResultsViewer;
