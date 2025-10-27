@@ -11,6 +11,26 @@ A comprehensive web application for monitoring tower cranes in real-time with MQ
 - **Database**: MongoDB
 - **Containerization**: Docker Compose
 
+## 📚 Documentation
+
+Comprehensive documentation is available in the [`docs/`](./docs/) directory:
+
+- **[Documentation Index](./docs/README.md)** - Complete documentation overview
+- **[Quick Start Guide](./docs/quick-start.md)** - Get up and running in minutes
+- **[User Guide](./docs/user-guide.md)** - Complete guide for all user roles
+- **[Developer Setup](./docs/developer-setup.md)** - Local development environment
+- **[API Reference](./docs/api-reference.md)** - Complete API documentation
+- **[How to Document](./docs/how-to-document.md)** - Documentation guidelines
+- **[Markdown Guide](./docs/MARKDOWN_GUIDE.md)** - Writing standards
+
+### Quick Links
+
+- [Installation Guide](./docs/developer-setup.md#step-by-step-setup)
+- [API Documentation](./docs/api-reference.md)
+- [User Roles & Permissions](./docs/user-guide.md#role-based-access-control)
+- [Troubleshooting](./docs/troubleshooting.md)
+- [Deployment Guide](./DEPLOYMENT_GUIDE.md)
+
 ## Quick Start
 
 ### Prerequisites
