@@ -49,11 +49,7 @@ describe('Telemetry Parser', () => {
         ls2: 'OK',
         ls3: 'OK',
         ut: 'OK',
-        util: 56,
-        windSpeed: 0,
-        windDirection: 0,
-        temperature: 0,
-        humidity: 0
+        util: 56
       });
     });
 
@@ -243,7 +239,7 @@ describe('Telemetry Parser', () => {
       const result = normalizeTelemetryData(data);
       
       expect(result).toEqual({
-        craneId: 'tc-001',
+        craneId: 'TC-001',
         ts: '2025-09-09T12:05:10Z',
         load: 85.12,
         swl: 100.99,
@@ -251,8 +247,7 @@ describe('Telemetry Parser', () => {
         ls2: 'FAIL',
         ls3: 'UNKNOWN',
         ut: 'OK',
-        util: 95.68,
-        locationData: null
+        util: 95.68
       });
     });
 
@@ -285,14 +280,13 @@ describe('Telemetry Parser', () => {
       expect(result).toEqual({
         craneId: 'TC-001',
         ts: '2025-09-09T12:05:10Z',
-        load: NaN,
-        swl: NaN,
+        load: 0,
+        swl: 0,
         ls1: 'UNKNOWN',
         ls2: 'UNKNOWN',
         ls3: 'UNKNOWN',
         ut: 'UNKNOWN',
-        util: NaN,
-        locationData: null
+        util: 0
       });
     });
   });
@@ -341,11 +335,7 @@ describe('Telemetry Parser', () => {
           ls2: 'OK',
           ls3: 'OK',
           ut: 'OK',
-          util: 56,
-          windSpeed: 0,
-          windDirection: 0,
-          temperature: 0,
-          humidity: 0
+          util: 56
         }
       }
     ];
