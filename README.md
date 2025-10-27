@@ -118,6 +118,7 @@ npm run seed
 - `POST /api/auth/logout` - User logout
 
 ### Cranes
+<<<<<<< HEAD
 - `GET /api/cranes` - List all cranes
 - `GET /api/cranes/:id` - Get crane details
 - `POST /api/cranes` - Create new crane
@@ -126,11 +127,28 @@ npm run seed
 
 ### Telemetry
 - `GET /api/cranes/:id/telemetry` - Get telemetry data
+=======
+- `GET /api/cranes` - List cranes (role-based filtering)
+- `GET /api/cranes/:id` - Get crane details
+- `POST /api/cranes` - Create crane (admin/manager only)
+- `PATCH /api/cranes/:id` - Update crane (admin/manager only)
+- `DELETE /api/cranes/:id` - Delete crane (admin only)
+
+### Telemetry
+- `GET /api/cranes/:id/telemetry` - Get telemetry data with time range
 
 ### Tickets
 - `GET /api/tickets` - List tickets
 - `POST /api/tickets` - Create ticket
-- `PATCH /api/tickets/:id` - Update ticket
+- `PATCH /api/tickets/:id` - Update ticket status
+
+### Users
+- `GET /api/users` - List users (admin only)
+- `POST /api/users` - Create user (admin only)
+- `PATCH /api/users/:id` - Update user (admin only)
+
+### Simulation
+- `POST /api/sim/publish` - Publish test MQTT payload (admin/manager only)
 
 ## MQTT Payload Examples
 
@@ -150,6 +168,24 @@ TC-001|2025-09-09T12:06:00Z|LOAD:85|SWL:100|LS1:OK|LS2:OK|LS3:FAIL|UT:OK|UTIL:78
 ```json
 {"id":"TC-002","ts":"2025-09-09T12:07:00Z","load":45,"swl":80,"ls1":"OK","ls2":"OK","ls3":"OK","ut":"OK","util":56}
 ```
+
+## MQTT Integration
+
+The backend subscribes to MQTT topics:
+- `crane/+/telemetry` - Real-time telemetry data
+- `crane/+/status` - Crane status updates
+
+## Database Seeding
+
+Seed the database with demo data:
+```bash
+npm run seed
+```
+
+This creates:
+- Demo users (admin, manager, operator)
+- Sample cranes
+- Test telemetry data
 
 ## Testing
 
@@ -173,18 +209,21 @@ cd frontend
 npm run dev
 ```
 
-### Database Seeding
-```bash
-cd backend
-npm run seed
-```
-
 ## Docker Services
 
 - **MongoDB**: Port 27017
 - **Mosquitto MQTT**: Port 1883
 - **Backend API**: Port 3001
 - **Frontend**: Port 3000
+
+## Environment Variables
+
+- `MONGO_URI` - MongoDB connection string
+- `JWT_SECRET` - Secret key for JWT tokens
+- `MQTT_BROKER_URL` - MQTT broker URL
+- `MQTT_USERNAME` - MQTT username (optional)
+- `MQTT_PASSWORD` - MQTT password (optional)
+- `PORT` - Server port (default: 3001)
 
 ## Security
 
