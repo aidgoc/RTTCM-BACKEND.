@@ -9,7 +9,10 @@ import {
   XMarkIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
-  AdjustmentsHorizontalIcon
+  AdjustmentsHorizontalIcon,
+  BuildingOffice2Icon,
+  ChartBarIcon,
+  CurrencyDollarIcon
 } from '@heroicons/react/24/outline';
 
 const navigation = [
@@ -18,6 +21,15 @@ const navigation = [
   { name: 'Users', href: '/users', icon: UsersIcon, requiresUserManagement: true },
   { name: 'Tickets', href: '/tickets', icon: TicketIcon },
   { name: 'Settings', href: '/settings', icon: AdjustmentsHorizontalIcon, requiresManagerAccess: true },
+];
+
+const superAdminNavigation = [
+  { name: 'Dashboard', href: '/superadmin', icon: HomeIcon },
+  { name: 'Companies', href: '/companies', icon: BuildingOffice2Icon },
+  { name: 'Analytics', href: '/analytics', icon: ChartBarIcon },
+  { name: 'Billing', href: '/billing', icon: CurrencyDollarIcon },
+  { name: 'All Users', href: '/all-users', icon: UsersIcon },
+  { name: 'Settings', href: '/settings', icon: AdjustmentsHorizontalIcon },
 ];
 
 export default function Sidebar({ user, isOpen, onToggle }) {
@@ -38,11 +50,17 @@ export default function Sidebar({ user, isOpen, onToggle }) {
     }
   }, []);
 
-  const filteredNavigation = navigation.filter(item => {
+  // Use different navigation for Super Admin
+  const navItems = user.role === 'superadmin' ? superAdminNavigation : navigation;
+  
+  const filteredNavigation = navItems.filter(item => {
+    // Super Admin can see all their menu items
+    if (user.role === 'superadmin') return true;
+    
     // Dashboard is always accessible
     if (item.name === 'Dashboard') return true;
     
-    // Role-based filtering
+    // Role-based filtering for other users
     if (item.requiresAdminAccess && !hasRole('admin')) return false;
     if (item.requiresManagerAccess && !hasRole('manager') && !hasRole('admin')) return false;
     if (item.requiresAssetAccess && !canViewAssets()) return false;

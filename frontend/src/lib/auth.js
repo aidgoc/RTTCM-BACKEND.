@@ -19,23 +19,45 @@ export function AuthProvider({ children }) {
         withCredentials: true,
       });
       setUser(response.data.user);
+      // Store token if available
+      if (response.data.token) {
+        localStorage.setItem('auth_token', response.data.token);
+      }
     } catch (error) {
       setUser(null);
+      // Clear token on auth failure
+      localStorage.removeItem('auth_token');
     } finally {
       setLoading(false);
     }
   };
 
-  const login = async (email, password) => {
+  const login = async (email, password, companyId = null, headOfficeId = null) => {
     try {
-      const response = await axios.post(`${API_BASE_URL}/api/auth/login`, {
+      const requestData = {
         email,
         password,
-      }, {
+      };
+      
+      // Include companyId if provided (for all users except superadmin)
+      if (companyId) {
+        requestData.companyId = companyId;
+      }
+      
+      // Include headOfficeId if provided (only for superadmin)
+      if (headOfficeId) {
+        requestData.headOfficeId = headOfficeId;
+      }
+      
+      const response = await axios.post(`${API_BASE_URL}/api/auth/login`, requestData, {
         withCredentials: true,
       });
       
       setUser(response.data.user);
+      // Store token in localStorage for API requests
+      if (response.data.token) {
+        localStorage.setItem('auth_token', response.data.token);
+      }
       return { success: true, user: response.data.user };
     } catch (error) {
       return { 
@@ -45,15 +67,23 @@ export function AuthProvider({ children }) {
     }
   };
 
-  const signup = async (name, email, password, role = 'operator') => {
+  const signup = async (name, email, password, role = 'operator', headOfficeId = '') => {
     try {
       console.log('Signup request starting...', { name, email, role, url: `${API_BASE_URL}/api/auth/signup` });
-      const response = await axios.post(`${API_BASE_URL}/api/auth/signup`, {
+      
+      const requestData = {
         name,
         email,
         password,
         role,
-      }, {
+      };
+      
+      // Only include headOfficeId for superadmin
+      if (role === 'superadmin' && headOfficeId) {
+        requestData.headOfficeId = headOfficeId;
+      }
+      
+      const response = await axios.post(`${API_BASE_URL}/api/auth/signup`, requestData, {
         withCredentials: true,
       });
       
@@ -78,6 +108,8 @@ export function AuthProvider({ children }) {
       console.error('Logout error:', error);
     } finally {
       setUser(null);
+      // Clear stored token
+      localStorage.removeItem('auth_token');
     }
   };
 
@@ -93,8 +125,9 @@ export function AuthProvider({ children }) {
   const canCreateUser = (targetRole) => {
     if (!user) return false;
     
-    // New simplified hierarchy
+    // New simplified hierarchy with superadmin
     const creationHierarchy = {
+      'superadmin': ['admin'],
       'admin': ['manager'],
       'manager': ['supervisor'],
       'supervisor': ['operator'],

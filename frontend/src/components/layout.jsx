@@ -2,8 +2,7 @@ import { useState, useEffect } from 'react';
 import { Toaster } from 'react-hot-toast';
 import Sidebar from './Sidebar';
 import TopBar from './TopBar';
-import { AuthProvider, useAuth } from '../lib/auth';
-import { SocketProvider } from '../lib/socket';
+import { useAuth } from '../lib/auth';
 import MQTTStatus from './MQTTStatus';
 import { useTheme } from '../contexts/ThemeContext';
 import { ClockIcon } from '@heroicons/react/24/outline';
@@ -65,10 +64,18 @@ function LayoutContent({ children }) {
   const isSupervisor = user.role === 'supervisor';
   const isAdmin = user.role === 'admin';
   const isManager = user.role === 'manager';
+  const isSuperAdmin = user.role === 'superadmin';
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
-      {isOperator || isSupervisor ? (
+      {isSuperAdmin ? (
+        // Super Admin layout: No sidebar, just content
+        <div className="flex flex-col min-h-screen">
+          <main className="flex-1">
+            {children}
+          </main>
+        </div>
+      ) : isOperator || isSupervisor ? (
         // Operator and Supervisor layout: Top bar only
         <div className="flex flex-col h-screen">
           <TopBar user={user} />
@@ -79,7 +86,7 @@ function LayoutContent({ children }) {
           </main>
         </div>
       ) : isManager ? (
-        // Manager layout: Sidebar + main content (same as admin)
+        // Manager layout: Sidebar + main content
         <div className="flex h-screen">
           <Sidebar 
             user={user} 
@@ -184,20 +191,18 @@ function LayoutContent({ children }) {
 
 export default function Layout({ children }) {
   return (
-    <AuthProvider>
-      <SocketProvider>
-        <LayoutContent>{children}</LayoutContent>
-        <Toaster 
-          position="top-right"
-          toastOptions={{
-            duration: 4000,
-            style: {
-              background: '#363636',
-              color: '#fff',
-            },
-          }}
-        />
-      </SocketProvider>
-    </AuthProvider>
+    <>
+      <LayoutContent>{children}</LayoutContent>
+      <Toaster 
+        position="top-right"
+        toastOptions={{
+          duration: 4000,
+          style: {
+            background: '#363636',
+            color: '#fff',
+          },
+        }}
+      />
+    </>
   );
 }

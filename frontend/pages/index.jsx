@@ -52,6 +52,7 @@ export default function Dashboard() {
   // Client-side role redirects to avoid SSR router usage
   useEffect(() => {
     if (typeof window === 'undefined' || !user) return;
+    if (user.role === 'superadmin') window.location.href = '/superadmin';
     if (user.role === 'supervisor') window.location.href = '/supervisor';
     if (user.role === 'operator') window.location.href = '/operator';
   }, [user]);

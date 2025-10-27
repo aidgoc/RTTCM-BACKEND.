@@ -1,5 +1,7 @@
 import Layout from '../src/components/layout';
 import { ThemeProvider } from '../src/contexts/ThemeContext';
+import { AuthProvider } from '../src/lib/auth';
+import { SocketProvider } from '../src/lib/socket';
 import { QueryClient, QueryClientProvider } from 'react-query';
 import { ReactQueryDevtools } from 'react-query/devtools';
 import '../src/styles/globals.css';
@@ -18,11 +20,15 @@ const queryClient = new QueryClient({
 export default function App({ Component, pageProps }) {
   return (
     <QueryClientProvider client={queryClient}>
-      <ThemeProvider>
-        <Layout>
-          <Component {...pageProps} />
-        </Layout>
-      </ThemeProvider>
+      <AuthProvider>
+        <SocketProvider>
+          <ThemeProvider>
+            <Layout>
+              <Component {...pageProps} />
+            </Layout>
+          </ThemeProvider>
+        </SocketProvider>
+      </AuthProvider>
       <ReactQueryDevtools initialIsOpen={false} />
     </QueryClientProvider>
   );

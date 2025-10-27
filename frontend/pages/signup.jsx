@@ -9,7 +9,8 @@ export default function Signup() {
     email: '',
     password: '',
     confirmPassword: '',
-    role: 'operator',
+    role: 'superadmin',
+    headOfficeId: '',
   });
   const [loading, setLoading] = useState(false);
   const { signup } = useAuth();
@@ -29,7 +30,8 @@ export default function Signup() {
         formData.name,
         formData.email,
         formData.password,
-        formData.role
+        formData.role,
+        formData.headOfficeId
       );
       
       if (result.success) {
@@ -57,14 +59,14 @@ export default function Signup() {
       <div className="max-w-md w-full space-y-8">
         {/* Header */}
         <div className="text-center">
-          <div className="mx-auto h-12 w-12 bg-primary-600 rounded-lg flex items-center justify-center">
-            <span className="text-white font-bold text-lg">CF</span>
+          <div className="mx-auto h-12 w-12 bg-blue-600 rounded-lg flex items-center justify-center">
+            <span className="text-white font-bold text-lg">DCE</span>
           </div>
           <h2 className="mt-6 text-3xl font-extrabold text-gray-900">
-            Create your account
+            Super Admin Registration
           </h2>
           <p className="mt-2 text-sm text-gray-600">
-            Join CraneFleet Management
+            Dynamic Crane Engineers - Staff Only
           </p>
         </div>
 
@@ -116,12 +118,34 @@ export default function Signup() {
                 value={formData.role}
                 onChange={handleChange}
               >
-                <option value="operator">Operator</option>
-                <option value="supervisor">Supervisor</option>
-                <option value="manager">Manager</option>
-                <option value="admin">Admin</option>
+                <option value="superadmin">Super Admin (Dynamic Crane Engineers Only)</option>
               </select>
+              <p className="text-sm text-gray-500 mt-1">
+                Note: Company users are created by their managers, not through public signup.
+              </p>
             </div>
+            
+            {/* Head Office ID - Only for Super Admin */}
+            {formData.role === 'superadmin' && (
+              <div>
+                <label htmlFor="headOfficeId" className="form-label">
+                  Head Office ID
+                </label>
+                <input
+                  id="headOfficeId"
+                  name="headOfficeId"
+                  type="password"
+                  required={formData.role === 'superadmin'}
+                  className="form-input"
+                  placeholder="Enter Head Office ID"
+                  value={formData.headOfficeId}
+                  onChange={handleChange}
+                />
+                <p className="text-sm text-gray-500 mt-1">
+                  Required for Super Admin registration
+                </p>
+              </div>
+            )}
             
             <div>
               <label htmlFor="password" className="form-label">

@@ -17,7 +17,7 @@ import {
 export default function CraneDetail() {
   const router = useRouter();
   const id = typeof window !== 'undefined' ? (router.query?.id || new URLSearchParams(window.location.search).get('id')) : undefined;
-  const { connected } = useSocket();
+  const { connected, subscribeToTelemetry } = useSocket();
   const [realTimeData, setRealTimeData] = useState(null);
 
   const { data, isLoading, refetch } = useQuery(
@@ -38,16 +38,16 @@ export default function CraneDetail() {
 
   // WebSocket subscription for real-time updates
   useEffect(() => {
-    if (!connected || !id) return;
+    if (!connected || !id || !subscribeToTelemetry) return;
 
-    const unsubscribe = useSocket().subscribeToTelemetry(id, (data) => {
+    const unsubscribe = subscribeToTelemetry(id, (data) => {
       setRealTimeData(data);
       refetch(); // Refresh crane data
       toast.success(`Real-time update for ${id}`);
     });
 
     return unsubscribe;
-  }, [connected, id, refetch]);
+  }, [connected, id, refetch, subscribeToTelemetry]);
 
   if (isLoading) {
     return (
