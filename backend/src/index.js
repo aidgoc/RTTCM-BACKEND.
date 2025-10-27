@@ -35,6 +35,7 @@ const craneAssignmentRoutes = require('./routes/crane-assignments');
 const ticketsNewRoutes = require('./routes/tickets-new');
 const assignmentsNewRoutes = require('./routes/assignments-new');
 const healthRoutes = require('./routes/health');
+const companiesRoutes = require('./routes/companies');
 const { authenticateToken } = require('./middleware/auth');
 
 const app = express();
@@ -189,7 +190,6 @@ app.use(cors({
       env.CORS_ORIGIN,
       env.FRONTEND_URL,
       'http://localhost:3000',
-      'http://localhost:3001',
       'https://yourdomain.com', // Replace with your production domain
       'https://www.yourdomain.com' // Replace with your production domain
     ];
@@ -444,6 +444,7 @@ app.use(cookieParser());
 
 // Routes
 app.use('/api/auth', authRoutes);
+app.use('/api/companies', authenticateToken, companiesRoutes);
 app.use('/api/cranes', authenticateToken, craneRoutes);
 app.use('/api/tickets', authenticateToken, ticketRoutes);
 app.use('/api/users', authenticateToken, userRoutes);

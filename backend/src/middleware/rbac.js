@@ -2,44 +2,53 @@ const User = require('../models/User');
 
 // Role hierarchy definition
 const ROLE_HIERARCHY = {
+  'superadmin': 5,
   'admin': 4,
   'manager': 3,
   'supervisor': 2,
   'operator': 1
 };
 
-// Permission definitions - New Simplified RBAC
+// Permission definitions - New Simplified RBAC with Super Admin
 const PERMISSIONS = {
   // User management - simplified hierarchy
-  'users.create': ['admin', 'manager', 'supervisor'],
-  'users.read': ['admin', 'manager', 'supervisor'],
-  'users.update': ['admin', 'manager', 'supervisor'],
-  'users.delete': ['admin', 'manager'],
+  'users.create': ['superadmin', 'admin', 'manager', 'supervisor'],
+  'users.read': ['superadmin', 'admin', 'manager', 'supervisor'],
+  'users.update': ['superadmin', 'admin', 'manager', 'supervisor'],
+  'users.delete': ['superadmin', 'admin', 'manager'],
   
   // Crane management - admins and managers can create/delete
   'cranes.create': ['admin', 'manager'],
-  'cranes.read': ['admin', 'manager', 'supervisor', 'operator'],
+  'cranes.read': ['superadmin', 'admin', 'manager', 'supervisor', 'operator'],
   'cranes.update': ['admin', 'manager', 'supervisor'],
   'cranes.delete': ['admin', 'manager'],
   'cranes.assign': ['admin', 'manager', 'supervisor'],
   
   // Ticket management - new feature
   'tickets.create': ['operator'],
-  'tickets.read': ['admin', 'manager', 'supervisor'],
-  'tickets.update': ['admin', 'manager', 'supervisor'],
-  'tickets.delete': ['admin', 'manager'],
+  'tickets.read': ['superadmin', 'admin', 'manager', 'supervisor'],
+  'tickets.update': ['superadmin', 'admin', 'manager', 'supervisor'],
+  'tickets.delete': ['superadmin', 'admin', 'manager'],
   'tickets.assign': ['admin', 'manager', 'supervisor'],
   'tickets.resolve': ['admin', 'manager', 'supervisor'],
   
+  // Company management - superadmin only
+  'companies.create': ['superadmin'],
+  'companies.read': ['superadmin'],
+  'companies.update': ['superadmin'],
+  'companies.delete': ['superadmin'],
+  'companies.billing': ['superadmin'],
+  
   // System permissions
-  'system.settings': ['admin'],
-  'system.reports': ['admin', 'manager', 'supervisor'],
-  'system.analytics': ['admin', 'manager']
+  'system.settings': ['superadmin', 'admin'],
+  'system.reports': ['superadmin', 'admin', 'manager', 'supervisor'],
+  'system.analytics': ['superadmin', 'admin', 'manager']
 };
 
 // Helper function to get better error messages
 const getPermissionError = (permission, userRole) => {
   const roleMessages = {
+    'superadmin': 'Super Administrators',
     'admin': 'Administrators',
     'manager': 'Managers',
     'supervisor': 'Supervisors', 
@@ -249,9 +258,41 @@ const filterDataByRole = (req, res, next) => {
   next();
 };
 
+// Middleware to enforce company isolation (multi-tenant)
+const enforceCompanyIsolation = (req, res, next) => {
+  if (!req.user) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+
+  // Super Admin can access all companies
+  if (req.user.role === 'superadmin') {
+    req.companyFilter = {}; // No filter for superadmin
+    return next();
+  }
+
+  // All other users can only access their own company data
+  if (!req.user.companyId) {
+    auditLog('COMPANY_ISOLATION_FAILED', req, { 
+      reason: 'User has no company assigned' 
+    });
+    return res.status(403).json({ 
+      error: 'Access denied',
+      message: 'User must be assigned to a company'
+    });
+  }
+
+  // Add company filter to request
+  req.companyFilter = { companyId: req.user.companyId };
+  auditLog('COMPANY_ISOLATION_APPLIED', req, { 
+    companyId: req.user.companyId 
+  });
+  next();
+};
+
 // Helper function to check if user can create specific role - New Simplified Hierarchy
 const canCreateRole = (currentUserRole, targetRole) => {
   const creationHierarchy = {
+    'superadmin': ['admin'],        // Super Admin can create company admins
     'admin': ['manager'],           // Admin can only create managers
     'manager': ['supervisor'],      // Manager can only create supervisors
     'supervisor': ['operator'],     // Supervisor can only create operators
@@ -339,6 +380,7 @@ module.exports = {
   canManageUser,
   canAccessCrane,
   filterDataByRole,
+  enforceCompanyIsolation,
   validateRoleCreation,
   validateDataAccess,
   canCreateRole,

@@ -23,9 +23,26 @@ const userSchema = new mongoose.Schema({
   },
   role: {
     type: String,
-    enum: ['admin', 'manager', 'supervisor', 'operator'],
+    enum: ['superadmin', 'admin', 'manager', 'supervisor', 'operator'],
     default: 'operator',
     required: true
+  },
+  // Head Office ID - only for superadmin role
+  headOfficeId: {
+    type: String,
+    required: function() {
+      return this.role === 'superadmin';
+    },
+    trim: true
+  },
+  // Company ID - all users except superadmin belong to a company
+  companyId: {
+    type: String,
+    required: function() {
+      return this.role !== 'superadmin';
+    },
+    trim: true,
+    uppercase: true
   },
   // Simplified RBAC structure
   assignedCranes: [{
@@ -60,7 +77,9 @@ const userSchema = new mongoose.Schema({
 // Primary indexes for efficient queries
 // Note: email index is automatically created by unique: true
 userSchema.index({ role: 1 });
+userSchema.index({ companyId: 1 });
 userSchema.index({ assignedCranes: 1 });
+userSchema.index({ companyId: 1, role: 1 }); // Company users by role
 
 // Performance-optimized composite indexes
 userSchema.index({ role: 1, isActive: 1 }); // Active users by role
@@ -117,7 +136,7 @@ userSchema.methods.checkPassword = async function(candidatePassword) {
 
 // Instance method to get public profile (without password)
 userSchema.methods.toPublicJSON = function() {
-  return {
+  const publicData = {
     _id: this._id,
     name: this.name,
     email: this.email,
@@ -130,11 +149,30 @@ userSchema.methods.toPublicJSON = function() {
     createdAt: this.createdAt,
     updatedAt: this.updatedAt
   };
+  
+  // Add companyId for non-superadmin users
+  if (this.role !== 'superadmin') {
+    publicData.companyId = this.companyId;
+  }
+  
+  // Never expose headOfficeId in public JSON for security
+  
+  return publicData;
 };
 
 // Static method to find users by role
 userSchema.statics.findByRole = function(role) {
   return this.find({ role, isActive: true });
+};
+
+// Static method to find users by company
+userSchema.statics.findByCompany = function(companyId) {
+  return this.find({ companyId, isActive: true });
+};
+
+// Static method to find users by company and role
+userSchema.statics.findByCompanyAndRole = function(companyId, role) {
+  return this.find({ companyId, role, isActive: true });
 };
 
 // Static method to find operators assigned to a crane
@@ -179,8 +217,10 @@ userSchema.methods.canManageUser = function(targetUser) {
 // Instance method to check if user can access crane
 userSchema.methods.canAccessCrane = function(craneId) {
   switch (this.role) {
+    case 'superadmin':
+      return true; // Super Admin can access all cranes across all companies
     case 'admin':
-      return true; // Admin can access all cranes
+      return true; // Admin can access all cranes within their company
     case 'manager':
       return this.assignedCranes && this.assignedCranes.includes(craneId);
     case 'supervisor':
@@ -195,8 +235,10 @@ userSchema.methods.canAccessCrane = function(craneId) {
 // Instance method to get accessible cranes based on role
 userSchema.methods.getAccessibleCranes = function() {
   switch (this.role) {
+    case 'superadmin':
+      return []; // Super Admin can see all cranes across all companies (handled in backend)
     case 'admin':
-      return []; // Admin can see all cranes (handled in frontend)
+      return []; // Admin can see all cranes within their company (handled in backend)
     case 'manager':
       return this.assignedCranes || [];
     case 'supervisor':
@@ -212,28 +254,34 @@ userSchema.methods.getAccessibleCranes = function() {
 userSchema.methods.hasPermission = function(permission) {
   const PERMISSIONS = {
     // User management - simplified
-    'users.create': ['admin', 'manager', 'supervisor'],
-    'users.read': ['admin', 'manager', 'supervisor'],
-    'users.update': ['admin', 'manager', 'supervisor'],
-    'users.delete': ['admin', 'manager'],
+    'users.create': ['superadmin', 'admin', 'manager', 'supervisor'],
+    'users.read': ['superadmin', 'admin', 'manager', 'supervisor'],
+    'users.update': ['superadmin', 'admin', 'manager', 'supervisor'],
+    'users.delete': ['superadmin', 'admin', 'manager'],
     
     // Crane management - simplified
-    'cranes.create': ['manager'],
-    'cranes.read': ['admin', 'manager', 'supervisor', 'operator'],
-    'cranes.update': ['manager', 'supervisor'],
-    'cranes.delete': ['manager'],
-    'cranes.assign': ['manager', 'supervisor'],
+    'cranes.create': ['admin', 'manager'],
+    'cranes.read': ['superadmin', 'admin', 'manager', 'supervisor', 'operator'],
+    'cranes.update': ['admin', 'manager', 'supervisor'],
+    'cranes.delete': ['admin', 'manager'],
+    'cranes.assign': ['admin', 'manager', 'supervisor'],
     
     // Ticket management - new
     'tickets.create': ['operator'],
-    'tickets.read': ['admin', 'manager', 'supervisor'],
-    'tickets.update': ['admin', 'manager', 'supervisor'],
-    'tickets.delete': ['admin', 'manager'],
+    'tickets.read': ['superadmin', 'admin', 'manager', 'supervisor'],
+    'tickets.update': ['superadmin', 'admin', 'manager', 'supervisor'],
+    'tickets.delete': ['superadmin', 'admin', 'manager'],
+    
+    // Company management - superadmin only
+    'companies.create': ['superadmin'],
+    'companies.read': ['superadmin'],
+    'companies.update': ['superadmin'],
+    'companies.delete': ['superadmin'],
     
     // System permissions
-    'system.settings': ['admin'],
-    'system.reports': ['admin', 'manager', 'supervisor'],
-    'system.analytics': ['admin', 'manager']
+    'system.settings': ['superadmin', 'admin'],
+    'system.reports': ['superadmin', 'admin', 'manager', 'supervisor'],
+    'system.analytics': ['superadmin', 'admin', 'manager']
   };
   
   const allowedRoles = PERMISSIONS[permission];
@@ -243,6 +291,7 @@ userSchema.methods.hasPermission = function(permission) {
 // Instance method to get user's role level
 userSchema.methods.getRoleLevel = function() {
   const ROLE_HIERARCHY = {
+    'superadmin': 5,
     'admin': 4,
     'manager': 3,
     'supervisor': 2,
@@ -263,13 +312,27 @@ userSchema.methods.canManageUser = function(targetUser) {
     return false;
   }
   
-  // New simplified hierarchy
+  // New simplified hierarchy with superadmin
   const hierarchy = {
+    'superadmin': ['admin'],        // Super Admin can manage company admins
     'admin': ['manager'],           // Admin can only manage managers
     'manager': ['supervisor'],      // Manager can only manage supervisors
     'supervisor': ['operator'],     // Supervisor can only manage operators
     'operator': []                  // Operators cannot manage anyone
   };
+  
+  // Super Admin can only manage admins from different companies
+  // Users within same company follow the hierarchy
+  if (this.role === 'superadmin') {
+    return targetUser.role === 'admin';
+  }
+  
+  // Non-superadmin users can only manage users within their own company
+  if (this.companyId && targetUser.companyId) {
+    if (this.companyId.toString() !== targetUser.companyId.toString()) {
+      return false; // Cannot manage users from different companies
+    }
+  }
   
   return hierarchy[this.role] && hierarchy[this.role].includes(targetUser.role);
 };
@@ -277,6 +340,7 @@ userSchema.methods.canManageUser = function(targetUser) {
 // Instance method to get users this user can manage
 userSchema.methods.getManageableRoles = function() {
   const hierarchy = {
+    'superadmin': ['admin'],
     'admin': ['manager'],
     'manager': ['supervisor'],
     'supervisor': ['operator'],
@@ -298,8 +362,18 @@ userSchema.methods.validateUserData = function() {
     errors.push('Valid email is required');
   }
   
-  if (!this.role || !['admin', 'manager', 'supervisor', 'operator'].includes(this.role)) {
+  if (!this.role || !['superadmin', 'admin', 'manager', 'supervisor', 'operator'].includes(this.role)) {
     errors.push('Valid role is required');
+  }
+  
+  // Superadmin must have headOfficeId
+  if (this.role === 'superadmin' && !this.headOfficeId) {
+    errors.push('Head Office ID is required for Super Admin role');
+  }
+  
+  // Non-superadmin must have companyId
+  if (this.role !== 'superadmin' && !this.companyId) {
+    errors.push('Company ID is required for non-superadmin users');
   }
   
   // Role-specific validations

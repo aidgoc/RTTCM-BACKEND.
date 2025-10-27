@@ -26,7 +26,7 @@ const authLimiter = (req, res, next) => {
  */
 router.post('/login', authLimiter, async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { email, password, companyId, headOfficeId } = req.body;
 
     console.log('Login attempt for email:', email);
 
@@ -50,6 +50,52 @@ router.post('/login', authLimiter, async (req, res) => {
       return res.status(401).json({ 
         error: 'Invalid credentials' 
       });
+    }
+
+    // Super Admin must provide Head Office ID
+    if (user.role === 'superadmin') {
+      if (!headOfficeId) {
+        return res.status(400).json({ 
+          error: 'Head Office ID is required for Super Admin login' 
+        });
+      }
+      
+      // Validate Head Office ID
+      if (user.headOfficeId !== headOfficeId) {
+        console.log('Invalid Head Office ID');
+        return res.status(401).json({ 
+          error: 'Invalid credentials' 
+        });
+      }
+    } else {
+      // Non-superadmin users must provide Company ID
+      if (!companyId) {
+        return res.status(400).json({ 
+          error: 'Company ID is required for login' 
+        });
+      }
+      
+      // Validate Company ID matches user's company
+      const userCompanyId = user.companyId?.trim().toUpperCase();
+      const providedCompanyId = companyId?.trim().toUpperCase();
+      
+      console.log('User Company ID (trimmed):', `"${userCompanyId}"`);
+      console.log('Provided Company ID (trimmed):', `"${providedCompanyId}"`);
+      console.log('Company ID match:', userCompanyId === providedCompanyId);
+      
+      if (userCompanyId !== providedCompanyId) {
+        console.log('Invalid Company ID - Mismatch');
+        return res.status(401).json({ 
+          error: 'Invalid credentials' 
+        });
+      }
+      
+      // Non-superadmin users should not provide Head Office ID
+      if (headOfficeId) {
+        return res.status(400).json({ 
+          error: 'Head Office ID is only for Super Admin' 
+        });
+      }
     }
 
     // Check password
@@ -102,7 +148,7 @@ router.post('/login', authLimiter, async (req, res) => {
  */
 router.post('/signup', async (req, res) => {
   try {
-    const { name, email, password, role = 'operator' } = req.body;
+    const { name, email, password, role = 'operator', headOfficeId, companyId } = req.body;
 
     // Validate input
     if (!name || !email || !password) {
@@ -120,20 +166,57 @@ router.post('/signup', async (req, res) => {
     }
 
     // Validate role
-    const validRoles = ['admin', 'manager', 'supervisor', 'operator'];
+    const validRoles = ['superadmin', 'admin', 'manager', 'supervisor', 'operator'];
     if (!validRoles.includes(role)) {
       return res.status(400).json({ 
-        error: 'Invalid role. Must be admin, manager, supervisor, or operator' 
+        error: 'Invalid role. Must be superadmin, admin, manager, supervisor, or operator' 
       });
     }
 
+    // Super Admin specific validation
+    if (role === 'superadmin') {
+      if (!headOfficeId) {
+        return res.status(400).json({ 
+          error: 'Head Office ID is required for Super Admin signup' 
+        });
+      }
+      // Super Admin should not have a company
+      if (companyId) {
+        return res.status(400).json({ 
+          error: 'Super Admin should not be assigned to a company' 
+        });
+      }
+    } else {
+      // Non-superadmin users must have a company
+      if (!companyId) {
+        return res.status(400).json({ 
+          error: 'Company ID is required for non-superadmin users' 
+        });
+      }
+      // Non-superadmin should not have headOfficeId
+      if (headOfficeId) {
+        return res.status(400).json({ 
+          error: 'Head Office ID is only for Super Admin' 
+        });
+      }
+    }
+
     // Create new user
-    const user = new User({
+    const userData = {
       name,
       email,
       passwordHash: password, // Will be hashed by pre-save middleware
       role
-    });
+    };
+
+    // Add role-specific fields
+    if (role === 'superadmin') {
+      userData.headOfficeId = headOfficeId;
+    } else {
+      userData.companyId = companyId;
+    }
+
+    const user = new User(userData);
 
     await user.save();
 
@@ -183,8 +266,20 @@ router.post('/signup', async (req, res) => {
  */
 router.get('/me', authLimiter, authenticateToken, smartCache, async (req, res) => {
   try {
+    // Generate a new token for the current session
+    const token = jwt.sign(
+      { 
+        userId: req.user._id, 
+        email: req.user.email, 
+        role: req.user.role 
+      },
+      process.env.JWT_SECRET,
+      { expiresIn: '24h' }
+    );
+    
     res.json({
-      user: req.user.toPublicJSON()
+      user: req.user.toPublicJSON(),
+      token: token
     });
   } catch (error) {
     console.error('Get user error:', error);
@@ -252,11 +347,11 @@ router.post('/refresh', authenticateToken, async (req, res) => {
 
 /**
  * POST /api/auth/create-user
- * Create user with role-based permissions (admin/manager/supervisor only)
+ * Create user with role-based permissions (superadmin/admin/manager/supervisor)
  */
 router.post('/create-user', authenticateToken, validateRoleCreation, async (req, res) => {
   try {
-    const { name, email, password, role } = req.body;
+    const { name, email, password, role, companyId } = req.body;
 
     // Validate input
     if (!name || !email || !password || !role) {
@@ -273,12 +368,41 @@ router.post('/create-user', authenticateToken, validateRoleCreation, async (req,
       });
     }
 
+    // Company validation
+    let assignedCompanyId;
+    
+    if (req.user.role === 'superadmin') {
+      // Super Admin creating a company admin
+      if (role === 'admin') {
+        if (!companyId) {
+          return res.status(400).json({ 
+            error: 'Company ID is required when creating company admin' 
+          });
+        }
+        assignedCompanyId = companyId;
+      } else {
+        return res.status(400).json({ 
+          error: 'Super Admin can only create company admins' 
+        });
+      }
+    } else {
+      // Non-superadmin users create users within their own company
+      assignedCompanyId = req.user.companyId;
+      
+      if (!assignedCompanyId) {
+        return res.status(400).json({ 
+          error: 'Creator must be assigned to a company' 
+        });
+      }
+    }
+
     // Create new user with creator relationship
     const user = new User({
       name,
       email,
       passwordHash: password, // Will be hashed by pre-save middleware
       role,
+      companyId: assignedCompanyId,
       createdBy: req.user._id
     });
 
@@ -313,6 +437,9 @@ router.get('/roles', authenticateToken, smartCache, (req, res) => {
     const availableRoles = [];
     
     switch (req.user.role) {
+      case 'superadmin':
+        availableRoles.push('admin');
+        break;
       case 'admin':
         availableRoles.push('manager');
         break;

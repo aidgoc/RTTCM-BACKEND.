@@ -90,7 +90,12 @@ router.get('/', authenticateToken, requirePermission('users.read'), filterDataBy
     let query = { isActive: true };
     
     // Filter users based on role hierarchy
-    if (req.user.role === 'manager') {
+    if (req.user.role === 'admin') {
+      // Admins can only see users within their own company (managers, supervisors, operators)
+      // They CANNOT see super admins or users from other companies
+      query.companyId = req.user.companyId;
+      query.role = { $in: ['manager', 'supervisor', 'operator'] };
+    } else if (req.user.role === 'manager') {
       // Managers can only see supervisors and operators they created
       query.$or = [
         { createdBy: req.user._id },
@@ -100,7 +105,7 @@ router.get('/', authenticateToken, requirePermission('users.read'), filterDataBy
       // Supervisors can only see operators they created
       query.createdBy = req.user._id;
     }
-    // Admin can see all users (no additional filter)
+    // Super admin can see all users (no additional filter)
     
     if (role) {
       query.role = role;
@@ -254,6 +259,7 @@ router.post('/', authenticateToken, validateRoleCreation, smartInvalidation, asy
       email,
       passwordHash: password, // Will be hashed by pre-save middleware
       role,
+      companyId: req.user.companyId, // Inherit companyId from logged-in user
       assignedCranes,
       createdBy: req.user._id
     });
@@ -420,6 +426,14 @@ router.delete('/:id', authenticateToken, canManageUser, smartInvalidation, async
     if (userId === req.user._id.toString()) {
       return res.status(400).json({ 
         error: 'Cannot deactivate your own account' 
+      });
+    }
+
+    // Additional security: Prevent non-superadmin from deactivating superadmin
+    if (req.user.role !== 'superadmin' && req.targetUser && req.targetUser.role === 'superadmin') {
+      return res.status(403).json({ 
+        error: 'Access denied',
+        message: 'Only Super Admin can deactivate other Super Admins'
       });
     }
 

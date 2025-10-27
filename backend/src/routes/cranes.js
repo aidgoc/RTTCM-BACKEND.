@@ -1175,4 +1175,118 @@ router.get('/:craneId/test-history', authenticateToken, canAccessCrane(), async 
   }
 });
 
+/**
+ * POST /api/cranes/:craneId/mqtt/publish
+ * Publish a message to MQTT broker for a specific crane
+ */
+router.post('/:craneId/mqtt/publish', authenticateToken, canAccessCrane(), async (req, res) => {
+  try {
+    const { craneId } = req.params;
+    const { topic, message, messageType = 'command' } = req.body;
+
+    // Validate required fields
+    if (!topic && !messageType) {
+      return res.status(400).json({ 
+        error: 'Either topic or messageType is required' 
+      });
+    }
+
+    if (!message) {
+      return res.status(400).json({ 
+        error: 'Message is required' 
+      });
+    }
+
+    // Verify crane exists
+    const crane = await Crane.findOne({ craneId, isActive: true });
+    if (!crane) {
+      return res.status(404).json({ error: 'Crane not found' });
+    }
+
+    // Construct topic if messageType is provided
+    let finalTopic = topic;
+    if (messageType && !topic) {
+      // Use standard topic patterns: crane/{craneId}/{messageType}
+      finalTopic = `crane/${craneId}/${messageType}`;
+    }
+
+    // Import MQTT client
+    const mqttClient = require('../mqttClient');
+
+    // Prepare message payload
+    const payload = typeof message === 'string' ? message : JSON.stringify(message);
+
+    // Publish to MQTT
+    const published = mqttClient.publish(finalTopic, payload);
+
+    if (!published) {
+      return res.status(503).json({ 
+        error: 'MQTT client not connected',
+        message: 'Cannot publish message - MQTT broker is not available'
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Message published to MQTT broker',
+      topic: finalTopic,
+      craneId,
+      payload: message,
+      timestamp: new Date()
+    });
+
+  } catch (error) {
+    console.error('MQTT publish error:', error);
+    res.status(500).json({ error: 'Failed to publish MQTT message' });
+  }
+});
+
+/**
+ * POST /api/cranes/mqtt/broadcast
+ * Broadcast a message to all cranes via MQTT
+ */
+router.post('/mqtt/broadcast', authenticateToken, requirePermission('cranes.update'), async (req, res) => {
+  try {
+    const { topic, message, messageType = 'broadcast' } = req.body;
+
+    // Validate required fields
+    if (!message) {
+      return res.status(400).json({ 
+        error: 'Message is required' 
+      });
+    }
+
+    // Construct topic for broadcast
+    let finalTopic = topic || `crane/all/${messageType}`;
+
+    // Import MQTT client
+    const mqttClient = require('../mqttClient');
+
+    // Prepare message payload
+    const payload = typeof message === 'string' ? message : JSON.stringify(message);
+
+    // Publish to MQTT
+    const published = mqttClient.publish(finalTopic, payload);
+
+    if (!published) {
+      return res.status(503).json({ 
+        error: 'MQTT client not connected',
+        message: 'Cannot publish message - MQTT broker is not available'
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Message broadcasted to all cranes',
+      topic: finalTopic,
+      payload: message,
+      timestamp: new Date()
+    });
+
+  } catch (error) {
+    console.error('MQTT broadcast error:', error);
+    res.status(500).json({ error: 'Failed to broadcast MQTT message' });
+  }
+});
+
 module.exports = router;
