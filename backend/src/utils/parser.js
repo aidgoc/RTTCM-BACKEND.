@@ -254,11 +254,7 @@ function parseJSONPayload(payload) {
       ls2: data.ls2 || 'UNKNOWN',
       ls3: data.ls3 || 'UNKNOWN',
       ut: data.ut || data.utility || 'UNKNOWN',
-      util: parseFloat(data.util) || 0,
-      windSpeed: parseFloat(data.windSpeed) || 0,
-      windDirection: parseFloat(data.windDirection) || 0,
-      temperature: parseFloat(data.temperature) || 0,
-      humidity: parseFloat(data.humidity) || 0
+      util: parseFloat(data.util) || 0
     };
   } catch (error) {
     console.error('JSON parsing error:', error);
@@ -634,17 +630,15 @@ function parseGPSFormat(payload) {
  */
 function normalizeTelemetryData(data) {
   return {
-    craneId: data.craneId?.toString().trim(),
+    craneId: data.craneId?.toString().trim().toUpperCase() || 'UNKNOWN',
     ts: data.ts?.toString().trim(),
-    load: Math.max(0, Math.round(data.load * 100) / 100), // Round to 2 decimal places
-    swl: Math.max(0, Math.round(data.swl * 100) / 100),
+    load: data.load != null ? Math.max(0, Math.round(data.load * 100) / 100) : 0,
+    swl: data.swl != null ? Math.max(0, Math.round(data.swl * 100) / 100) : 0,
     ls1: data.ls1?.toString().toUpperCase() || 'UNKNOWN',
     ls2: data.ls2?.toString().toUpperCase() || 'UNKNOWN',
     ls3: data.ls3?.toString().toUpperCase() || 'UNKNOWN',
     ut: data.ut?.toString().toUpperCase() || 'UNKNOWN',
-    util: Math.max(0, Math.min(100, Math.round(data.util * 100) / 100)), // Clamp between 0-100
-    // Preserve location data if present
-    locationData: data.locationData || null
+    util: data.util != null ? Math.max(0, Math.min(100, Math.round(data.util * 100) / 100)) : 0
   };
 }
 
