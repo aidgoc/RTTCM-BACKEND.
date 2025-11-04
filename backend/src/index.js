@@ -40,16 +40,35 @@ const { authenticateToken } = require('./middleware/auth');
 
 const app = express();
 const server = createServer(app);
+
+// Define allowed origins for Socket.IO (same as Express CORS)
+const allowedSocketOrigins = [
+  env.CORS_ORIGIN,
+  env.FRONTEND_URL,
+  'http://localhost:3000',
+  'https://rttcm-frontend.vercel.app',
+  'https://rttcm-frontend-git-main-hng-dgocins-projects.vercel.app',
+  'https://drm.logstop.com',
+  'https://www.drm.logstop.com'
+];
+
 const io = new Server(server, {
   cors: {
-    origin: env.FRONTEND_URL,
+    origin: (origin, callback) => {
+      if (!origin || allowedSocketOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by CORS'));
+      }
+    },
     methods: ["GET", "POST"],
     credentials: true
   }
 });
 
 // =============================================================================
-// COMPREHENSIVE SECURITY HEADERS WITH HELMET.JS
+// COMPREHENSIVE SECURITY HEADERS WITH HELMET.JSode
+
 // =============================================================================
 
 // Enhanced Helmet configuration for production-grade security
@@ -190,6 +209,10 @@ app.use(cors({
       env.CORS_ORIGIN,
       env.FRONTEND_URL,
       'http://localhost:3000',
+      'https://rttcm-frontend.vercel.app', // Production frontend
+      'https://rttcm-frontend-git-main-hng-dgocins-projects.vercel.app', // Vercel preview
+      'https://drm.logstop.com', // Custom domain
+      'https://www.drm.logstop.com', // Custom domain with www
       'https://yourdomain.com', // Replace with your production domain
       'https://www.yourdomain.com' // Replace with your production domain
     ];
