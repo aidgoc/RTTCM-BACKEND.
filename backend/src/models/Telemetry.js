@@ -23,22 +23,22 @@ const telemetrySchema = new mongoose.Schema({
   },
   ls1: {
     type: String,
-    enum: ['OK', 'FAIL', 'UNKNOWN'],
+    enum: ['OK', 'FAIL', 'UNKNOWN', 'HIT'],
     default: 'UNKNOWN'
   },
   ls2: {
     type: String,
-    enum: ['OK', 'FAIL', 'UNKNOWN'],
+    enum: ['OK', 'FAIL', 'UNKNOWN', 'HIT'],
     default: 'UNKNOWN'
   },
   ls3: {
     type: String,
-    enum: ['OK', 'FAIL', 'UNKNOWN'],
+    enum: ['OK', 'FAIL', 'UNKNOWN', 'HIT'],
     default: 'UNKNOWN'
   },
   ls4: {
     type: String,
-    enum: ['OK', 'FAIL', 'UNKNOWN'],
+    enum: ['OK', 'FAIL', 'UNKNOWN', 'HIT'],
     default: 'UNKNOWN'
   },
   util: {
@@ -88,6 +88,11 @@ const telemetrySchema = new mongoose.Schema({
     enum: ['normal', 'test', 'calibration'],
     default: 'normal'
   },
+  // Test mode flag (from TEST bit in DRM3400 EVENT messages)
+  testMode: {
+    type: Boolean,
+    default: false
+  },
   // Test mode specific
   testType: {
     type: String,
@@ -97,6 +102,11 @@ const telemetrySchema = new mongoose.Schema({
   testResults: {
     type: mongoose.Schema.Types.Mixed,
     default: null
+  },
+  // Overload flag (from OL bit in DRM3400 EVENT messages)
+  overload: {
+    type: Boolean,
+    default: false
   }
 }, {
   timestamps: true
@@ -143,8 +153,10 @@ telemetrySchema.index({ raw: 1 }, { sparse: true }); // Raw data queries (sparse
 // DRM3300-specific indexes
 telemetrySchema.index({ craneId: 1, operatingMode: 1, ts: -1 }); // Operating mode queries
 telemetrySchema.index({ craneId: 1, testType: 1, ts: -1 }); // Test mode queries
+telemetrySchema.index({ craneId: 1, testMode: 1, ts: -1 }); // Test history queries (pre-operation tests)
 telemetrySchema.index({ operatingMode: 1, ts: -1 }); // Global operating mode analysis
 telemetrySchema.index({ testType: 1, ts: -1 }); // Global test analysis
+telemetrySchema.index({ testMode: 1, ts: -1 }); // Global test history
 telemetrySchema.index({ craneId: 1, trolleyPos: 1, ts: -1 }); // Trolley position analysis
 telemetrySchema.index({ craneId: 1, hookHeight: 1, ts: -1 }); // Hook height analysis
 telemetrySchema.index({ craneId: 1, windSpeed: 1, ts: -1 }); // Wind condition analysis

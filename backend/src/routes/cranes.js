@@ -294,33 +294,33 @@ router.get('/', authenticateToken, filterDataByRole, smartCache, async (req, res
           // Computed fields for status
           utilization: {
             $cond: [
-              { $and: ['$latestTelemetryData', { $ne: ['$latestTelemetryData.util', null] }] },
-              { $min: [100, { $max: [0, '$latestTelemetryData.util'] }] },
+              { $and: ['$lastStatusRaw', { $ne: ['$lastStatusRaw.util', null] }] },
+              { $min: [100, { $max: [0, '$lastStatusRaw.util'] }] },
               0
             ]
           },
           currentLoad: {
             $cond: [
-              { $and: ['$latestTelemetryData', { $ne: ['$latestTelemetryData.load', null] }] },
-              '$latestTelemetryData.load',
+              { $and: ['$lastStatusRaw', { $ne: ['$lastStatusRaw.load', null] }] },
+              '$lastStatusRaw.load',
               0
             ]
           },
           isOverloaded: {
             $cond: [
-              { $and: ['$latestTelemetryData', { $ne: ['$latestTelemetryData.load', null] }] },
-              { $gt: ['$latestTelemetryData.load', '$swl'] },
+              { $and: ['$lastStatusRaw', { $ne: ['$lastStatusRaw.load', null] }] },
+              { $gt: ['$lastStatusRaw.load', '$swl'] },
               false
             ]
           },
           limitSwitchStatus: {
             $cond: [
-              { $ne: ['$latestTelemetryData', null] },
+              { $ne: ['$lastStatusRaw', null] },
               {
-                ls1: { $ifNull: ['$latestTelemetryData.ls1', 'UNKNOWN'] },
-                ls2: { $ifNull: ['$latestTelemetryData.ls2', 'UNKNOWN'] },
-                ls3: { $ifNull: ['$latestTelemetryData.ls3', 'UNKNOWN'] },
-                ls4: { $ifNull: ['$latestTelemetryData.ls4', 'UNKNOWN'] }
+                ls1: { $ifNull: ['$lastStatusRaw.ls1', 'UNKNOWN'] },
+                ls2: { $ifNull: ['$lastStatusRaw.ls2', 'UNKNOWN'] },
+                ls3: { $ifNull: ['$lastStatusRaw.ls3', 'UNKNOWN'] },
+                ls4: { $ifNull: ['$lastStatusRaw.ls4', 'UNKNOWN'] }
               },
               {
                 ls1: 'UNKNOWN',
@@ -403,6 +403,150 @@ router.get('/', authenticateToken, filterDataByRole, smartCache, async (req, res
 });
 
 /**
+ * Get all pending cranes (discovered from MQTT but not approved)
+ */
+router.get('/pending', authenticateToken, requirePermission('cranes.read'), async (req, res) => {
+  try {
+    const pendingCranes = craneDiscovery.getPendingCranes();
+    res.json({
+      success: true,
+      pendingCranes: pendingCranes.map(crane => ({
+        craneId: crane.craneId,
+        name: crane.name,
+        location: crane.location,
+        swl: crane.swl,
+        discoveredAt: crane.discoveredAt,
+        lastSeen: crane.lastSeen,
+        telemetryCount: crane.telemetryCount,
+        locationData: crane.locationData
+      }))
+    });
+  } catch (error) {
+    console.error('Get pending cranes error:', error);
+    res.status(500).json({ error: 'Failed to fetch pending cranes' });
+  }
+});
+
+/**
+ * Approve a pending crane
+ */
+router.post('/pending/:craneId/approve', authenticateToken, requirePermission('cranes.create'), smartInvalidation, async (req, res) => {
+  try {
+    let { craneId } = req.params;
+    let { name, location, swl, managerUserId, operators, assignedSupervisors, locationData } = req.body;
+
+    // Validate required fields
+    if (!name || !location) {
+      return res.status(400).json({ 
+        error: 'Name and location are required for approval' 
+      });
+    }
+
+    // If no manager specified and user is a manager, auto-assign to them
+    if (!managerUserId && req.user.role === 'manager') {
+      managerUserId = req.user._id.toString();
+      console.log(`📌 Auto-assigning crane to approving manager: ${req.user.name} (${managerUserId})`);
+    }
+
+    // Try to find the pending crane with both raw ID and prefixed formats
+    const pendingCranes = craneDiscovery.getPendingCranes();
+    console.log(`🔍 Looking for pending crane with ID: ${craneId}`);
+    console.log(`📋 Available pending cranes:`, pendingCranes.map(pc => pc.craneId));
+    
+    const matchingCrane = pendingCranes.find(pc => 
+      pc.craneId === craneId || 
+      pc.craneId.endsWith(`-${craneId}`) || 
+      pc.craneId === `DM-${craneId}` ||
+      pc.craneId === `TC-${craneId}`
+    );
+
+    if (matchingCrane) {
+      console.log(`✅ Found matching crane: ${matchingCrane.craneId}`);
+      craneId = matchingCrane.craneId; // Use the full ID from the pending map
+    } else {
+      console.log(`❌ No matching crane found for ID: ${craneId}`);
+    }
+
+    const crane = await craneDiscovery.approvePendingCrane(craneId, {
+      name,
+      location,
+      swl,
+      managerUserId,
+      operators,
+      assignedSupervisors,
+      locationData
+    });
+
+    // Emit WebSocket event for crane approval
+    const io = req.app.get('io');
+    if (io) {
+      const craneData = {
+        ...crane.toObject(),
+        statusSummary: crane.getStatusSummary ? crane.getStatusSummary() : null
+      };
+      
+      io.emit('crane:created', {
+        crane: craneData,
+        message: `Crane ${craneId} approved and activated by ${req.user.name}`,
+        timestamp: new Date().toISOString()
+      });
+      
+      console.log(`📡 WebSocket event emitted: crane:created for approved crane ${craneId}`);
+    }
+
+    res.json({
+      success: true,
+      message: `Crane ${craneId} has been approved and activated`,
+      crane: {
+        craneId: crane.craneId,
+        name: crane.name,
+        location: crane.location,
+        swl: crane.swl,
+        isActive: crane.isActive
+      }
+    });
+  } catch (error) {
+    console.error('Approve pending crane error:', error);
+    
+    // Provide detailed error messages for validation errors
+    if (error.name === 'ValidationError') {
+      const errors = Object.values(error.errors).map(err => err.message);
+      return res.status(400).json({ 
+        error: 'Validation failed', 
+        details: errors,
+        message: errors.join(', ')
+      });
+    }
+    
+    res.status(500).json({ 
+      error: 'Failed to approve pending crane',
+      message: error.message || 'An unexpected error occurred'
+    });
+  }
+});
+
+/**
+ * Reject a pending crane
+ */
+router.post('/pending/:craneId/reject', authenticateToken, requirePermission('cranes.delete'), async (req, res) => {
+  try {
+    const { craneId } = req.params;
+    const { reason } = req.body;
+
+    craneDiscovery.rejectPendingCrane(craneId, reason);
+
+    res.json({
+      success: true,
+      message: `Crane ${craneId} has been rejected`,
+      reason: reason || 'Not authorized'
+    });
+  } catch (error) {
+    console.error('Reject pending crane error:', error);
+    res.status(500).json({ error: 'Failed to reject pending crane' });
+  }
+});
+
+/**
  * GET /api/cranes/:id
  * Get specific crane details
  */
@@ -457,6 +601,9 @@ router.post('/', authenticateToken, requirePermission('cranes.create'), smartInv
       // Location fields
       siteAddress,
       city,
+      // Manual GPS coordinates (optional)
+      latitude,
+      longitude,
       // GSM location fields
       accuracy,
       method
@@ -512,43 +659,62 @@ router.post('/', authenticateToken, requirePermission('cranes.create'), smartInv
     // Prepare location data
     let locationData = {};
     
-    // City coordinates fallback for major Indian cities
-    const cityCoordinates = {
-      'HUBBALI-DHARWAD': [15.3647, 75.1240],
-      'GADAG': [15.4319, 75.6319],
-      'BENGALURU': [12.9716, 77.5946],
-      'MUMBAI': [19.0760, 72.8777],
-      'DELHI': [28.7041, 77.1025],
-      'CHENNAI': [13.0827, 80.2707],
-      'KOLKATA': [22.5726, 88.3639],
-      'HYDERABAD': [17.3850, 78.4867],
-      'PUNE': [18.5204, 73.8567],
-      'AHMEDABAD': [23.0225, 72.5714],
-      'JAIPUR': [26.9124, 75.7873]
-    };
-    
-    // For manual crane creation, use city coordinates as fallback
-    // GPS coordinates will be provided by GSM module via MQTT
-    const cityCoords = cityCoordinates[city?.toUpperCase()];
-    if (cityCoords) {
-      locationData = {
-        coordinates: [cityCoords[1], cityCoords[0]], // [lng, lat]
-        locationSource: 'city_default',
-        city: city || 'Unknown',
-        siteAddress: siteAddress || location,
-        locationAccuracy: 5000, // 5km accuracy for city center
-        locationMethod: 'estimated'
-      };
+    // Priority 1: Use manual coordinates if provided
+    if (latitude && longitude) {
+      const lat = parseFloat(latitude);
+      const lng = parseFloat(longitude);
+      
+      if (!isNaN(lat) && !isNaN(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+        locationData = {
+          coordinates: [lng, lat], // [longitude, latitude] - GeoJSON format
+          locationSource: 'manual_entry',
+          city: city || 'Unknown',
+          siteAddress: siteAddress || location,
+          locationAccuracy: accuracy ? parseFloat(accuracy) : 5, // Manual entry is more accurate
+          locationMethod: method || 'manual'
+        };
+      } else {
+        return res.status(400).json({ 
+          error: 'Invalid coordinates. Latitude must be between -90 and 90, Longitude between -180 and 180' 
+        });
+      }
     } else {
-      // Default to Hubballi if city not found
-      locationData = {
-        coordinates: [75.1240, 15.3647], // [lng, lat] for Hubballi
-        locationSource: 'city_default',
-        city: city || 'HUBBALI-DHARWAD',
-        siteAddress: siteAddress || location,
-        locationAccuracy: 5000,
-        locationMethod: 'estimated'
+      // Priority 2: Use city coordinates as fallback
+      const cityCoordinates = {
+        'HUBBALI-DHARWAD': [15.3647, 75.1240],
+        'GADAG': [15.4319, 75.6319],
+        'BENGALURU': [12.9716, 77.5946],
+        'MUMBAI': [19.0760, 72.8777],
+        'DELHI': [28.7041, 77.1025],
+        'CHENNAI': [13.0827, 80.2707],
+        'KOLKATA': [22.5726, 88.3639],
+        'HYDERABAD': [17.3850, 78.4867],
+        'PUNE': [18.5204, 73.8567],
+        'AHMEDABAD': [23.0225, 72.5714],
+        'JAIPUR': [26.9124, 75.7873]
       };
+      
+      const cityCoords = cityCoordinates[city?.toUpperCase()];
+      if (cityCoords) {
+        locationData = {
+          coordinates: [cityCoords[1], cityCoords[0]], // [lng, lat]
+          locationSource: 'city_default',
+          city: city || 'Unknown',
+          siteAddress: siteAddress || location,
+          locationAccuracy: 5000, // 5km accuracy for city center
+          locationMethod: 'estimated'
+        };
+      } else {
+        // Default to Hubballi if city not found
+        locationData = {
+          coordinates: [75.1240, 15.3647], // [lng, lat] for Hubballi
+          locationSource: 'city_default',
+          city: city || 'HUBBALI-DHARWAD',
+          siteAddress: siteAddress || location,
+          locationAccuracy: 5000,
+          locationMethod: 'estimated'
+        };
+      }
     }
 
     // Create new crane
@@ -1012,162 +1178,42 @@ router.get('/:id/tickets', authenticateToken, canAccessCrane('id'), smartCache, 
   }
 });
 
-// =============================================================================
-// CRANE DISCOVERY ENDPOINTS
-// =============================================================================
-
-/**
- * Get all pending cranes (discovered from MQTT but not approved)
- */
-router.get('/pending', authenticateToken, requirePermission('cranes.read'), async (req, res) => {
-  try {
-    const pendingCranes = craneDiscovery.getPendingCranes();
-    res.json({
-      success: true,
-      pendingCranes: pendingCranes.map(crane => ({
-        craneId: crane.craneId,
-        name: crane.name,
-        location: crane.location,
-        swl: crane.swl,
-        discoveredAt: crane.discoveredAt,
-        lastSeen: crane.lastSeen,
-        telemetryCount: crane.telemetryCount,
-        locationData: crane.locationData
-      }))
-    });
-  } catch (error) {
-    console.error('Get pending cranes error:', error);
-    res.status(500).json({ error: 'Failed to fetch pending cranes' });
-  }
-});
-
-/**
- * Approve a pending crane
- */
-router.post('/pending/:craneId/approve', authenticateToken, requirePermission('cranes.create'), smartInvalidation, async (req, res) => {
-  try {
-    const { craneId } = req.params;
-    const { name, location, swl, managerUserId, operators, assignedSupervisors, locationData } = req.body;
-
-    // Validate required fields
-    if (!name || !location) {
-      return res.status(400).json({ 
-        error: 'Name and location are required for approval' 
-      });
-    }
-
-    const crane = await craneDiscovery.approvePendingCrane(craneId, {
-      name,
-      location,
-      swl,
-      managerUserId,
-      operators,
-      assignedSupervisors,
-      locationData
-    });
-
-    // Emit WebSocket event for crane approval
-    const io = req.app.get('io');
-    if (io) {
-      const craneData = {
-        ...crane.toObject(),
-        statusSummary: crane.getStatusSummary ? crane.getStatusSummary() : null
-      };
-      
-      io.emit('crane:created', {
-        crane: craneData,
-        message: `Crane ${craneId} approved and activated by ${req.user.name}`,
-        timestamp: new Date().toISOString()
-      });
-      
-      console.log(`📡 WebSocket event emitted: crane:created for approved crane ${craneId}`);
-    }
-
-    res.json({
-      success: true,
-      message: `Crane ${craneId} has been approved and activated`,
-      crane: {
-        craneId: crane.craneId,
-        name: crane.name,
-        location: crane.location,
-        swl: crane.swl,
-        isActive: crane.isActive
-      }
-    });
-  } catch (error) {
-    console.error('Approve pending crane error:', error);
-    res.status(500).json({ error: 'Failed to approve pending crane' });
-  }
-});
-
-/**
- * Reject a pending crane
- */
-router.post('/pending/:craneId/reject', authenticateToken, requirePermission('cranes.delete'), async (req, res) => {
-  try {
-    const { craneId } = req.params;
-    const { reason } = req.body;
-
-    craneDiscovery.rejectPendingCrane(craneId, reason);
-
-    res.json({
-      success: true,
-      message: `Crane ${craneId} has been rejected`,
-      reason: reason || 'Not authorized'
-    });
-  } catch (error) {
-    console.error('Reject pending crane error:', error);
-    res.status(500).json({ error: 'Failed to reject pending crane' });
-  }
-});
-
 /**
  * GET /api/cranes/:craneId/test-history
- * Get test history for a specific crane
+ * Get pre-operation test history for a specific crane
+ * Returns telemetry records where testMode = true (TEST bit set in DRM3400 EVENT messages)
  */
 router.get('/:craneId/test-history', authenticateToken, canAccessCrane(), async (req, res) => {
   const startTime = Date.now();
   try {
     const { craneId } = req.params;
-    const { limit = 10 } = req.query;
+    const { limit = 30 } = req.query;
 
     console.log(`[Test History] Fetching for crane ${craneId}...`);
     const queryStart = Date.now();
     
-    // Fetch test telemetry records (where operatingMode is 'test')
+    // Fetch test telemetry records (where testMode = true, from TEST bit in DRM3400)
     const tests = await Telemetry.find({
       craneId,
-      operatingMode: 'test'
+      testMode: true
     })
     .sort({ ts: -1 })
     .limit(parseInt(limit))
-    .select('ts testType testResults ls1 ls2 ls3 ls4')
+    .select('ts load swl ls1 ls2 ls3 ls4 util overload testMode operatingMode testType testResults createdAt')
     .lean();
 
     const queryTime = Date.now() - queryStart;
     console.log(`[Test History] Query took ${queryTime}ms, found ${tests.length} tests`);
 
-    // Format the response
-    const formattedTests = tests.map(test => ({
-      id: test._id,
-      timestamp: test.ts,
-      testType: test.testType || 'unknown',
-      testResults: test.testResults || {
-        ls1: test.ls1,
-        ls2: test.ls2,
-        ls3: test.ls3,
-        ls4: test.ls4
-      },
-      status: 'completed'
-    }));
-
     const totalTime = Date.now() - startTime;
     console.log(`[Test History] Total request time: ${totalTime}ms`);
 
     res.json({
+      success: true,
       craneId,
-      tests: formattedTests,
-      total: formattedTests.length
+      tests,
+      count: tests.length,
+      total: tests.length
     });
   } catch (error) {
     console.error('Fetch test history error:', error);

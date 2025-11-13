@@ -14,9 +14,10 @@ class CraneDiscovery {
    * Check if crane exists, if not, create pending entry
    * @param {string} craneId - The crane ID from MQTT data
    * @param {Object} telemetryData - The telemetry data received
+   * @param {string} companyId - The company ID extracted from MQTT topic (optional)
    * @returns {Object} - Crane object (existing or pending)
    */
-  async discoverCrane(craneId, telemetryData) {
+  async discoverCrane(craneId, telemetryData, companyId = null) {
     try {
       // First, try to find existing crane
       let crane = await Crane.findOne({ craneId, isActive: true });
@@ -36,9 +37,9 @@ class CraneDiscovery {
       // Create pending crane entry
       const pendingCrane = {
         craneId,
-        name: `Unknown Crane ${craneId}`,
-        location: 'Unknown Location',
-        swl: telemetryData.swl || 0,
+        name: `Crane ${craneId}`,
+        location: 'Pending Approval',
+        swl: telemetryData.swl || 5000, // Default to 5000kg (5 tons) if not provided
         isActive: false, // Not active until approved
         isPending: true,
         discoveredAt: new Date(),
@@ -46,7 +47,9 @@ class CraneDiscovery {
         telemetryCount: 1,
         lastTelemetryData: telemetryData,
         // Extract location from telemetry if available
-        locationData: this.extractLocationFromTelemetry(telemetryData)
+        locationData: this.extractLocationFromTelemetry(telemetryData),
+        // Store company ID if provided from MQTT topic
+        companyId: companyId || telemetryData.companyId || null
       };
 
       this.pendingCranes.set(craneId, pendingCrane);
@@ -121,7 +124,7 @@ class CraneDiscovery {
         name: craneData.name || pendingCrane.name,
         location: craneData.location || pendingCrane.location,
         swl: craneData.swl || pendingCrane.swl,
-        managerUserId: craneData.managerUserId,
+        managerUserId: craneData.managerUserId || undefined, // Convert empty string to undefined
         operators: craneData.operators || [],
         assignedSupervisors: craneData.assignedSupervisors || [],
         locationData: craneData.locationData || pendingCrane.locationData || {
@@ -134,6 +137,51 @@ class CraneDiscovery {
       });
 
       await crane.save();
+
+      // Fetch the latest telemetry data and update crane status
+      const Telemetry = require('../models/Telemetry');
+      const latestTelemetry = await Telemetry.findOne({ craneId: crane.craneId })
+        .sort({ ts: -1 })
+        .limit(1);
+
+      if (latestTelemetry) {
+        // Update crane with the latest telemetry data
+        await crane.updateStatus({
+          load: latestTelemetry.load,
+          swl: latestTelemetry.swl,
+          util: latestTelemetry.util,
+          ls1: latestTelemetry.ls1,
+          ls2: latestTelemetry.ls2,
+          ls3: latestTelemetry.ls3,
+          ls4: latestTelemetry.ls4,
+          raw: latestTelemetry.raw
+        });
+        console.log(`📊 Updated crane ${craneId} with latest telemetry data from ${latestTelemetry.ts}`);
+      }
+
+      // Auto-assign crane to manager, supervisors, and operators
+      const User = require('../models/User');
+      const usersToAssign = [];
+
+      // Collect all users that need crane assignment
+      if (craneData.managerUserId) {
+        usersToAssign.push(craneData.managerUserId);
+      }
+      if (craneData.assignedSupervisors && craneData.assignedSupervisors.length > 0) {
+        usersToAssign.push(...craneData.assignedSupervisors);
+      }
+      if (craneData.operators && craneData.operators.length > 0) {
+        usersToAssign.push(...craneData.operators);
+      }
+
+      // Update all users' assignedCranes array
+      if (usersToAssign.length > 0) {
+        const updateResult = await User.updateMany(
+          { _id: { $in: usersToAssign } },
+          { $addToSet: { assignedCranes: crane.craneId } }
+        );
+        console.log(`✅ Assigned crane ${craneId} to ${updateResult.modifiedCount} user(s)`);
+      }
 
       // Remove from pending list
       this.pendingCranes.delete(craneId);

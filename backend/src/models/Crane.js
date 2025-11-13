@@ -7,7 +7,7 @@ const craneSchema = new mongoose.Schema({
     unique: true,
     trim: true,
     uppercase: true,
-    match: [/^TC-\d{3}$/, 'Crane ID must be in format TC-XXX']
+    match: [/^(TC|DM|ET|HT)-[\dA-F]+$/i, 'Crane ID must be in format TC-XXX, DM-XXX, ET-XXX, or HT-XXX']
   },
   name: {
     type: String,
