@@ -107,6 +107,79 @@ describe('Telemetry Parser', () => {
       
       expect(result).toBeNull();
     });
+
+    test('should parse DRM3400 heartbeat message', () => {
+      const payload = '$DM123673F8ABC010000#A3F5';
+      const result = parseTelemetryPayload(payload);
+
+      expect(result).not.toBeNull();
+      expect(result).toMatchObject({
+        craneId: 'DM-123',
+        deviceId: '123',
+        commandType: 'heartbeat',
+        ts: '2024-11-21T19:32:12.000Z',
+        crc: 'A3F5',
+        util: 0,
+        ut: 'OFF',
+        load: 0
+      });
+    });
+
+    test('should parse DRM3400 event message with limit switches and test flag', () => {
+      const payload = '$DM123673F8ABC02001F#B2A8';
+      const result = parseTelemetryPayload(payload);
+
+      expect(result).not.toBeNull();
+      expect(result).toMatchObject({
+        craneId: 'DM-123',
+        deviceId: '123',
+        commandType: 'event',
+        ts: '2024-11-21T19:32:12.000Z',
+        crc: 'B2A8',
+        util: 0,
+        ut: 'OFF',
+        overload: false,
+        testMode: true,
+        blankBit: false
+      });
+      expect(result.ls1).toBe('HIT');
+      expect(result.ls2).toBe('HIT');
+      expect(result.ls3).toBe('HIT');
+      expect(result.ls4).toBe('HIT');
+    });
+
+    test('should parse DRM3400 load message and scale payload', () => {
+      const payload = '$DM123673F8ABC0404D2#C1F3';
+      const result = parseTelemetryPayload(payload);
+
+      expect(result).not.toBeNull();
+      expect(result).toMatchObject({
+        craneId: 'DM-123',
+        deviceId: '123',
+        commandType: 'load',
+        ts: '2024-11-21T19:32:12.000Z',
+        crc: 'C1F3'
+      });
+      expect(result.rawLoad).toBe(1234);
+      expect(result.load).toBeCloseTo(123.4, 5);
+    });
+
+    test('should parse DRM3400 ticket raised message', () => {
+      const payload = '$DM123673F8ABC030103#B2F3';
+      const result = parseTelemetryPayload(payload);
+
+      expect(result).not.toBeNull();
+      expect(result).toMatchObject({
+        craneId: 'DM-123',
+        deviceId: '123',
+        commandType: 'ticket',
+        ts: '2024-11-21T19:32:12.000Z',
+        crc: 'B2F3',
+        ticketNumber: 1,
+        ticketType: 3,
+        ticketStatus: 'open'
+      });
+    });
   });
 
   describe('validateTelemetryData', () => {
