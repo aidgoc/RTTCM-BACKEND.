@@ -292,11 +292,53 @@ router.get('/', authenticateToken, filterDataByRole, smartCache, async (req, res
           operatorNames: 1,
           supervisorNames: 1,
           // Computed fields for status
+          // Utilization: Use utilizationHours (hours) if available, otherwise utilization (minutes), fallback to util (binary flag)
           utilization: {
             $cond: [
-              { $and: ['$lastStatusRaw', { $ne: ['$lastStatusRaw.util', null] }] },
-              { $min: [100, { $max: [0, '$lastStatusRaw.util'] }] },
+              { $and: ['$lastStatusRaw', { $ne: ['$lastStatusRaw.utilizationHours', null] }] },
+              { $multiply: ['$lastStatusRaw.utilizationHours', 60] }, // Convert hours to minutes for display
+              {
+                $cond: [
+                  { $and: ['$lastStatusRaw', { $ne: ['$lastStatusRaw.utilization', null] }] },
+                  '$lastStatusRaw.utilization', // Minutes (backward compatibility)
+                  {
+                    $cond: [
+                      { $and: ['$lastStatusRaw', { $ne: ['$lastStatusRaw.util', null] }] },
+                      '$lastStatusRaw.util', // Fallback to binary flag (0 or 1)
+                      0
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          // Additional utilization metrics
+          utilizationHours: {
+            $cond: [
+              { $and: ['$lastStatusRaw', { $ne: ['$lastStatusRaw.utilizationHours', null] }] },
+              '$lastStatusRaw.utilizationHours',
               0
+            ]
+          },
+          utilizationPercentage: {
+            $cond: [
+              { $and: ['$lastStatusRaw', { $ne: ['$lastStatusRaw.utilizationPercentage', null] }] },
+              '$lastStatusRaw.utilizationPercentage',
+              0
+            ]
+          },
+          currentSessionHours: {
+            $cond: [
+              { $and: ['$lastStatusRaw', { $ne: ['$lastStatusRaw.currentSessionHours', null] }] },
+              '$lastStatusRaw.currentSessionHours',
+              0
+            ]
+          },
+          utilState: {
+            $cond: [
+              { $and: ['$lastStatusRaw', { $ne: ['$lastStatusRaw.utilState', null] }] },
+              '$lastStatusRaw.utilState',
+              'IDLE'
             ]
           },
           currentLoad: {

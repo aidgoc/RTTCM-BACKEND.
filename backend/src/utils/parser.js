@@ -347,6 +347,8 @@ function parseDM6Format(payload) {
 
     // Event (0x02) – decode bits from dataHigh, low often 0
     if (command === 0x02) {
+      // According to documentation:
+      // UTIL bit: 0 = crane not under operation, 1 = crane under operation (FLAG, not percentage)
       const utilBit = (dataHigh & 0x80) !== 0; // bit7
       const overloadBit = (dataHigh & 0x40) !== 0; // bit6
       const limitSwitchTestBit = (dataHigh & 0x20) !== 0; // bit5 (repurposed)
@@ -374,7 +376,8 @@ function parseDM6Format(payload) {
         } : null,
         load: load,
         swl: 100, // Default, will be updated from crane config
-        util: utilBit ? 100 : 0,
+        // UTIL is a flag: 0 = idle, 1 = operating (not a percentage)
+        util: utilBit ? 1 : 0,
         ut: utilBit ? 'ON' : 'OFF',
         overload: overloadBit,
         ls1: ls1Hit ? 'HIT' : 'OK',
@@ -566,19 +569,23 @@ function parseDRM3400_20ByteFormat(payload) {
         };
 
       case 0x02: { // Event
-        const utilBit = (dataLow & 0x80) !== 0;
-        const overloadBit = (dataLow & 0x40) !== 0;
-        const blankBit = (dataLow & 0x20) !== 0;
-        const testBit = (dataLow & 0x10) !== 0;
-        const ls4Hit = (dataLow & 0x08) !== 0;
-        const ls3Hit = (dataLow & 0x04) !== 0;
-        const ls2Hit = (dataLow & 0x02) !== 0;
-        const ls1Hit = (dataLow & 0x01) !== 0;
+        // According to documentation:
+        // Bit 7 (UTIL): 0 = crane not under operation, 1 = crane under operation
+        // This is a FLAG, not a percentage value
+        const utilBit = (dataLow & 0x80) !== 0; // Bit 7
+        const overloadBit = (dataLow & 0x40) !== 0; // Bit 6
+        const blankBit = (dataLow & 0x20) !== 0; // Bit 5 (don't care)
+        const testBit = (dataLow & 0x10) !== 0; // Bit 4
+        const ls4Hit = (dataLow & 0x08) !== 0; // Bit 3
+        const ls3Hit = (dataLow & 0x04) !== 0; // Bit 2
+        const ls2Hit = (dataLow & 0x02) !== 0; // Bit 1
+        const ls1Hit = (dataLow & 0x01) !== 0; // Bit 0
 
         return {
           ...baseData,
           commandType: 'event',
-          util: utilBit ? 100 : 0,
+          // UTIL is a flag: 0 = idle, 1 = operating (not a percentage)
+          util: utilBit ? 1 : 0,
           ut: utilBit ? 'ON' : 'OFF',
           overload: overloadBit,
           testMode: testBit,
@@ -748,7 +755,8 @@ function parseDRM3400_CompactFormat(payload) {
       ls2: ls2Hit ? 'HIT' : 'OK',
       ls3: ls3Hit ? 'HIT' : 'OK',
       ls4: ls4Hit ? 'HIT' : 'OK',
-      util: utilBit ? 100 : 0,
+      // UTIL is a flag: 0 = idle, 1 = operating (not a percentage)
+      util: utilBit ? 1 : 0,
       ut: utilBit ? 'ON' : 'OFF',
       overload: overloadBit,
       testMode: testBit,

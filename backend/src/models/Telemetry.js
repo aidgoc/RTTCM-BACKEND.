@@ -107,6 +107,28 @@ const telemetrySchema = new mongoose.Schema({
   overload: {
     type: Boolean,
     default: false
+  },
+  // Ticket information (from TICKET command 0x03)
+  ticketNumber: {
+    type: Number,
+    default: null
+  },
+  ticketType: {
+    type: Number,
+    default: null
+  },
+  ticketStatus: {
+    type: String,
+    enum: ['open', 'closed'],
+    default: null
+  },
+  isTicketOpen: {
+    type: Boolean,
+    default: null
+  },
+  ticketTypeInfo: {
+    type: mongoose.Schema.Types.Mixed,
+    default: null
   }
 }, {
   timestamps: true
@@ -225,6 +247,8 @@ telemetrySchema.statics.getLatestTelemetry = function(craneId) {
 };
 
 // Static method to get telemetry statistics
+// Note: This calculates average utilization from binary flags (0 or 1)
+// For accurate utilization, use the crane's lastStatusRaw.utilizationPercentage
 telemetrySchema.statics.getTelemetryStats = function(craneId, from, to) {
   const matchStage = { craneId };
   
@@ -242,6 +266,9 @@ telemetrySchema.statics.getTelemetryStats = function(craneId, from, to) {
         count: { $sum: 1 },
         avgLoad: { $avg: '$load' },
         maxLoad: { $max: '$load' },
+        // Average utilization from binary flags (0 or 1)
+        // Formula: avgUtilization = Σ(util) / count
+        // This gives percentage of time when util = 1
         avgUtilization: { $avg: '$util' },
         maxUtilization: { $max: '$util' },
         overloadCount: {

@@ -1,6 +1,70 @@
 const mqtt = require('mqtt');
 const { parseTelemetryPayload } = require('./utils/parser');
 const { convertRawTopic } = require('./utils/convertRawTopic');
+
+/**
+ * Calculate CRC16-CCITT checksum
+ * @param {string|Buffer} data - Data to calculate CRC for
+ * @returns {string} - CRC16 as 4-character hex string (e.g., "12D7")
+ */
+function calculateCRC16(data) {
+  let crc = 0xFFFF;
+  const polynomial = 0x1021;
+  
+  // Convert string to buffer if needed
+  let buffer;
+  if (typeof data === 'string') {
+    buffer = Buffer.from(data, 'utf8');
+  } else {
+    buffer = data;
+  }
+  
+  for (let i = 0; i < buffer.length; i++) {
+    crc ^= (buffer[i] << 8);
+    for (let j = 0; j < 8; j++) {
+      if (crc & 0x8000) {
+        crc = (crc << 1) ^ polynomial;
+      } else {
+        crc = crc << 1;
+      }
+      crc &= 0xFFFF;
+    }
+  }
+  
+  return crc.toString(16).toUpperCase().padStart(4, '0');
+}
+
+/**
+ * Validate CRC16 for DRM3400 message format
+ * @param {string} message - Full message (e.g., "$DM1236915CDC403028012D7#")
+ * @param {string} receivedCRC - CRC from message (e.g., "12D7")
+ * @returns {number} - 1 if valid, 0 if invalid
+ */
+function validateCRC16(message, receivedCRC) {
+  if (!message || !receivedCRC || receivedCRC === 'N/A') {
+    return 0; // Invalid if CRC is missing
+  }
+  
+  try {
+    // Extract data portion (between $DM and #)
+    const hashIndex = message.indexOf('#');
+    if (hashIndex === -1) return 0;
+    
+    // Data to validate: everything from $DM to # (excluding #)
+    const dataToValidate = message.substring(0, hashIndex);
+    
+    // Calculate CRC
+    const calculatedCRC = calculateCRC16(dataToValidate);
+    const receivedCRCUpper = receivedCRC.toUpperCase().trim();
+    
+    // Compare (case-insensitive)
+    return calculatedCRC === receivedCRCUpper ? 1 : 0;
+  } catch (error) {
+    console.error('CRC validation error:', error);
+    return 0;
+  }
+}
+
 function normalizePayload(rawPayload) {
   if (Buffer.isBuffer(rawPayload)) {
     rawPayload = rawPayload.toString();
@@ -97,13 +161,17 @@ function logHeartbeatDetails(telemetryData) {
   const commandHex = (telemetryData.commandHex || '??').toUpperCase();
   const dataHex = formatDataHex(telemetryData);
   const crc = telemetryData.crc ? telemetryData.crc.toUpperCase() : 'N/A';
+  
+  // Validate CRC
+  const rawMessage = telemetryData.raw || '';
+  const crcValid = validateCRC16(rawMessage, crc);
 
   console.log(`[INFO] [${ts}] [DEVICE: ${deviceLabel} | ID: ${deviceId}]`);
   console.log('→ Message Type: HEARTBEAT');
   console.log(`→ Command Byte: ${commandHex}`);
   console.log(`→ Data: ${dataHex}`);
   console.log('→ Status: ✅ Device connected and active');
-  console.log(`→ CRC16 Check: Passed (${crc})`);
+  console.log(`→ CRC16 Check: ${crcValid === 1 ? '✅ Valid' : '❌ Invalid'} (${crcValid})`);
   console.log('------------------------------------------------------------');
   console.log('💡 Meaning: Crane sent a heartbeat confirming it is online and responsive.');
   console.log('');
@@ -116,6 +184,10 @@ function logEventDetails(telemetryData) {
   const commandHex = (telemetryData.commandHex || '??').toUpperCase();
   const rawDataHex = formatDataHex(telemetryData);
   const crc = telemetryData.crc ? telemetryData.crc.toUpperCase() : 'N/A';
+  
+  // Validate CRC
+  const rawMessage = telemetryData.raw || '';
+  const crcValid = validateCRC16(rawMessage, crc);
 
   const utilActive = (telemetryData.util || 0) > 0;
   const overload = Boolean(telemetryData.overload);
@@ -143,7 +215,7 @@ function logEventDetails(telemetryData) {
   console.log(`   LS2: ${ICON[lsHit.ls2]} ${lsHit.ls2 ? 'Hit' : 'Clear'}`);
   console.log(`   LS3: ${ICON[lsHit.ls3]} ${lsHit.ls3 ? 'Hit' : 'Clear'}`);
   console.log(`   LS4: ${ICON[lsHit.ls4]} ${lsHit.ls4 ? 'Hit' : 'Clear'}`);
-  console.log(`→ CRC16 Check: Passed (${crc})`);
+  console.log(`→ CRC16 Check: ${crcValid === 1 ? '✅ Valid' : '❌ Invalid'} (${crcValid})`);
 
   const summaryParts = [];
   summaryParts.push(utilActive ? 'crane operating' : 'crane idle');
@@ -166,6 +238,11 @@ function logLoadDetails(telemetryData) {
   const commandHex = (telemetryData.commandHex || '??').toUpperCase();
   const rawDataHex = formatDataHex(telemetryData);
   const crc = telemetryData.crc ? telemetryData.crc.toUpperCase() : 'N/A';
+  
+  // Validate CRC
+  const rawMessage = telemetryData.raw || '';
+  const crcValid = validateCRC16(rawMessage, crc);
+  
   const rawLoad = Number.isFinite(telemetryData.rawLoad) ? telemetryData.rawLoad : null;
   const loadTons = Number.isFinite(telemetryData.load) ? telemetryData.load : 0;
 
@@ -177,7 +254,7 @@ function logLoadDetails(telemetryData) {
     console.log(`→ Decimal Conversion: ${rawLoad}`);
   }
   console.log(`→ Actual Load: ${loadTons.toFixed(1)} Tons`);
-  console.log(`→ CRC16 Check: Passed (${crc})`);
+  console.log(`→ CRC16 Check: ${crcValid === 1 ? '✅ Valid' : '❌ Invalid'} (${crcValid})`);
   console.log('------------------------------------------------------------');
   console.log('ALERT STATUS: 🟢 Load within acceptable working range');
   console.log('------------------------------------------------------------');
@@ -193,6 +270,10 @@ function logTicketDetails(telemetryData) {
   const dataHighHex = telemetryData.dataHighHex ? telemetryData.dataHighHex.toUpperCase() : '00';
   const dataLowHex = telemetryData.dataLowHex ? telemetryData.dataLowHex.toUpperCase() : '00';
   const crc = telemetryData.crc ? telemetryData.crc.toUpperCase() : 'N/A';
+  
+  // Validate CRC
+  const rawMessage = telemetryData.raw || '';
+  const crcValid = validateCRC16(rawMessage, crc);
 
   const derivedTicketNumber = parseInt(dataHighHex, 16);
   const ticketNumber = telemetryData.ticketNumber ?? (Number.isFinite(derivedTicketNumber) ? derivedTicketNumber : 0);
@@ -200,7 +281,11 @@ function logTicketDetails(telemetryData) {
   const ticketStatus = telemetryData.ticketStatus || 'open';
   const statusIcon = ICON[ticketStatus !== 'closed'];
   const statusLabel = ticketStatus === 'closed' ? 'CLOSED' : 'OPEN';
-  const problemDescription = TICKET_PROBLEM_DESCRIPTIONS[ticketType] || 'Unknown Problem Code';
+  
+  // Use ticketTypeInfo from parsed data if available, otherwise fallback to hardcoded mapping
+  const ticketTypeInfo = telemetryData.ticketTypeInfo;
+  const problemDescription = ticketTypeInfo?.problem || TICKET_PROBLEM_DESCRIPTIONS[ticketType] || 'Unknown Problem Code';
+  const problemDescriptionFull = ticketTypeInfo?.description || problemDescription;
 
   const binary = toBinaryWord(telemetryData.dataHigh, telemetryData.dataLow);
 
@@ -214,7 +299,11 @@ function logTicketDetails(telemetryData) {
   console.log(`Ticket Status: ${statusIcon} ${statusLabel}`);
   console.log(`Problem Code: #${ticketType}`);
   console.log(`Problem Description: ${problemDescription}`);
-  console.log(`→ CRC16 Check: Passed (${crc})`);
+  if (ticketTypeInfo) {
+    console.log(`→ Full Description: ${problemDescriptionFull}`);
+    console.log(`→ Severity: ${ticketTypeInfo.severity || 'N/A'}`);
+  }
+  console.log(`→ CRC16 Check: ${crcValid === 1 ? '✅ Valid' : '❌ Invalid'} (${crcValid})`);
   console.log('------------------------------------------------------------');
   console.log(`Action Required: ${ticketStatus === 'closed' ? 'Ticket closed. No further action.' : `Notify maintenance team for problem #${ticketType}`}`);
   console.log('');
@@ -525,6 +614,14 @@ class MQTTClient {
         operatingMode: telemetryData.operatingMode || 'normal',
         testType: telemetryData.testType || null,
         testResults: telemetryData.testResults || null,
+        overload: telemetryData.overload || false,
+        testMode: telemetryData.testMode || false,
+        // Ticket information (if present)
+        ticketNumber: telemetryData.ticketNumber !== undefined ? telemetryData.ticketNumber : null,
+        ticketType: telemetryData.ticketType !== undefined ? telemetryData.ticketType : null,
+        ticketStatus: telemetryData.ticketStatus || null,
+        isTicketOpen: telemetryData.isTicketOpen !== undefined ? telemetryData.isTicketOpen : null,
+        ticketTypeInfo: telemetryData.ticketTypeInfo || null,
         raw: (() => {
           try {
             const base = typeof payload === 'string' && payload.trim().startsWith('{')
@@ -556,10 +653,10 @@ class MQTTClient {
         console.log(`   Saved document _id: ${savedTelemetry._id}`);
         console.log(`   isNew after save: ${savedTelemetry.isNew}`);
         console.log(`💾 Telemetry saved to MongoDB for crane ${telemetry.craneId}`, {
-          telemetryId: telemetry._id,
-          craneId: telemetry.craneId,  // Show the actual craneId that was saved
-          timestamp: telemetry.ts,
-          load: telemetry.load,
+        telemetryId: telemetry._id,
+          craneId: telemetry.craneId,
+        timestamp: telemetry.ts,
+        load: telemetry.load,
           util: telemetry.util,
           ls1: telemetry.ls1,
           ls2: telemetry.ls2,
@@ -567,6 +664,11 @@ class MQTTClient {
           ls4: telemetry.ls4,
           operatingMode: telemetry.operatingMode,
           testType: telemetry.testType,
+          ticketNumber: telemetry.ticketNumber,
+          ticketType: telemetry.ticketType,
+          ticketStatus: telemetry.ticketStatus,
+          isTicketOpen: telemetry.isTicketOpen,
+          ticketTypeInfo: telemetry.ticketTypeInfo,
           isPending: isPending || false
         });
       } catch (saveError) {
@@ -598,6 +700,11 @@ class MQTTClient {
       // Update crane's last seen and status (only for approved cranes)
       // Use the normalized craneId from telemetryData
       await this.updateCraneStatus(telemetryData.craneId, telemetryData);
+
+      // Handle TICKET commands - create/update Ticket documents
+      if (telemetryData.commandType === 'ticket' && telemetryData.ticketNumber !== undefined) {
+        await this.handleTicketCommand(telemetryData.craneId, telemetryData);
+      }
 
       // Check for alerts and create tickets (only for approved cranes)
       await this.checkAlerts(telemetryData.craneId, telemetryData);
@@ -667,29 +774,323 @@ class MQTTClient {
         mergedStatus.load = data.load;
       }
       
-      // Update limit switches only if not 'UNKNOWN'
-      if (data.ls1 && data.ls1 !== 'UNKNOWN') mergedStatus.ls1 = data.ls1;
-      if (data.ls2 && data.ls2 !== 'UNKNOWN') mergedStatus.ls2 = data.ls2;
-      if (data.ls3 && data.ls3 !== 'UNKNOWN') mergedStatus.ls3 = data.ls3;
-      if (data.ls4 && data.ls4 !== 'UNKNOWN') mergedStatus.ls4 = data.ls4;
+      // Initialize hit tracking if not exists
+      if (!mergedStatus.ls1HitCount) mergedStatus.ls1HitCount = 0;
+      if (!mergedStatus.ls2HitCount) mergedStatus.ls2HitCount = 0;
+      if (!mergedStatus.ls3HitCount) mergedStatus.ls3HitCount = 0;
+      if (!mergedStatus.ls4HitCount) mergedStatus.ls4HitCount = 0;
       
-      // Update utilization
-      if (data.util !== undefined) mergedStatus.util = data.util;
+      // Track previous states to detect transitions
+      const prevLs1 = mergedStatus.ls1;
+      const prevLs2 = mergedStatus.ls2;
+      const prevLs3 = mergedStatus.ls3;
+      const prevLs4 = mergedStatus.ls4;
+      
+      // Track which switches have been tested today (separate from current protocol state)
+      if (!mergedStatus.ls1TestedToday) mergedStatus.ls1TestedToday = false;
+      if (!mergedStatus.ls2TestedToday) mergedStatus.ls2TestedToday = false;
+      if (!mergedStatus.ls3TestedToday) mergedStatus.ls3TestedToday = false;
+      if (!mergedStatus.ls4TestedToday) mergedStatus.ls4TestedToday = false;
+      
+      // Update current protocol states (what's actually HIT now - protocol sends sequential hits)
+      // Protocol behavior: Only ONE switch shows HIT at a time, previous ones reset to OK
+      if (data.ls1 && data.ls1 !== 'UNKNOWN') {
+        mergedStatus.ls1 = data.ls1; // Update to current protocol state
+        // Track if this switch has been tested today (mark as tested if it's HIT and wasn't HIT before)
+        if (data.ls1 === 'HIT' && prevLs1 !== 'HIT' && !mergedStatus.ls1TestedToday && !mergedStatus.testMode) {
+          mergedStatus.ls1TestedToday = true;
+          mergedStatus.ls1HitCount = (mergedStatus.ls1HitCount || 0) + 1;
+          console.log(`✅ LS1 tested today (count: ${mergedStatus.ls1HitCount})`);
+        }
+      }
+      
+      if (data.ls2 && data.ls2 !== 'UNKNOWN') {
+        mergedStatus.ls2 = data.ls2; // Update to current protocol state
+        if (data.ls2 === 'HIT' && prevLs2 !== 'HIT' && !mergedStatus.ls2TestedToday && !mergedStatus.testMode) {
+          mergedStatus.ls2TestedToday = true;
+          mergedStatus.ls2HitCount = (mergedStatus.ls2HitCount || 0) + 1;
+          console.log(`✅ LS2 tested today (count: ${mergedStatus.ls2HitCount})`);
+        }
+      }
+      
+      if (data.ls3 && data.ls3 !== 'UNKNOWN') {
+        mergedStatus.ls3 = data.ls3; // Update to current protocol state
+        if (data.ls3 === 'HIT' && prevLs3 !== 'HIT' && !mergedStatus.ls3TestedToday && !mergedStatus.testMode) {
+          mergedStatus.ls3TestedToday = true;
+          mergedStatus.ls3HitCount = (mergedStatus.ls3HitCount || 0) + 1;
+          console.log(`✅ LS3 tested today (count: ${mergedStatus.ls3HitCount})`);
+        }
+      }
+      
+      if (data.ls4 && data.ls4 !== 'UNKNOWN') {
+        mergedStatus.ls4 = data.ls4; // Update to current protocol state
+        if (data.ls4 === 'HIT' && prevLs4 !== 'HIT' && !mergedStatus.ls4TestedToday && !mergedStatus.testMode) {
+          mergedStatus.ls4TestedToday = true;
+          mergedStatus.ls4HitCount = (mergedStatus.ls4HitCount || 0) + 1;
+          console.log(`✅ LS4 tested today (count: ${mergedStatus.ls4HitCount})`);
+        }
+      }
+      
+      // Check if all 4 limit switches have been tested today (even if not all HIT at same time)
+      const allSwitchesTested = mergedStatus.ls1TestedToday && 
+                                mergedStatus.ls2TestedToday && 
+                                mergedStatus.ls3TestedToday && 
+                                mergedStatus.ls4TestedToday;
+      
+      // Check if test was already done today
+      const testDoneAt = mergedStatus.testDoneAt ? new Date(mergedStatus.testDoneAt) : null;
+      const now = new Date(); // Define now before using it in utilization calculation
+      const hoursSinceTest = testDoneAt ? (now - testDoneAt) / (1000 * 60 * 60) : 24;
+      
+      // If 24 hours have passed since last test, reset test status
+      if (testDoneAt && hoursSinceTest >= 24) {
+        mergedStatus.testMode = false;
+        mergedStatus.testDoneAt = null;
+        // Reset test tracking for new cycle
+        mergedStatus.ls1TestedToday = false;
+        mergedStatus.ls2TestedToday = false;
+        mergedStatus.ls3TestedToday = false;
+        mergedStatus.ls4TestedToday = false;
+        console.log(`⏰ 24 hours passed - Resetting Test Done status for ${craneId}. Ready for new test.`);
+      }
+      
+      // If all 4 switches have been tested today (even if not all HIT at same time) and test is not done yet, mark test as done
+      if (allSwitchesTested && !mergedStatus.testMode) {
+        mergedStatus.testMode = true;
+        mergedStatus.testDoneAt = now.toISOString();
+        
+        // Note: We don't reset switches to OK here because protocol controls the current state
+        // Protocol will send OK for switches as operator moves to next switch
+        // We just mark that all switches have been tested today
+        
+        console.log(`🎉 All 4 limit switches tested today - Test Done for ${craneId} at ${now.toLocaleString()}`);
+      }
+      
+      // After test is done, still count hits if switches are hit again (for statistics)
+      // But don't mark them as tested (already tested today)
+      if (mergedStatus.testMode) {
+        if (data.ls1 === 'HIT' && prevLs1 !== 'HIT') {
+          mergedStatus.ls1HitCount = (mergedStatus.ls1HitCount || 0) + 1;
+          console.log(`📊 LS1 hit again after test done (total count: ${mergedStatus.ls1HitCount})`);
+        }
+        if (data.ls2 === 'HIT' && prevLs2 !== 'HIT') {
+          mergedStatus.ls2HitCount = (mergedStatus.ls2HitCount || 0) + 1;
+          console.log(`📊 LS2 hit again after test done (total count: ${mergedStatus.ls2HitCount})`);
+        }
+        if (data.ls3 === 'HIT' && prevLs3 !== 'HIT') {
+          mergedStatus.ls3HitCount = (mergedStatus.ls3HitCount || 0) + 1;
+          console.log(`📊 LS3 hit again after test done (total count: ${mergedStatus.ls3HitCount})`);
+        }
+        if (data.ls4 === 'HIT' && prevLs4 !== 'HIT') {
+          mergedStatus.ls4HitCount = (mergedStatus.ls4HitCount || 0) + 1;
+          console.log(`📊 LS4 hit again after test done (total count: ${mergedStatus.ls4HitCount})`);
+        }
+      }
+      
+      // Calculate utilization from binary flag (UTIL bit)
+      // Protocol: 0 = IDLE, 1 = WORKING
+      // Track working sessions and calculate daily utilization hours
+      if (data.util !== undefined) {
+        const prevUtilState = mergedStatus.utilState || 'IDLE'; // 'WORKING' or 'IDLE'
+        const prevUtilTimestamp = mergedStatus.utilTimestamp || now.toISOString();
+        const todayWorkingHours = mergedStatus.todayWorkingHours || 0;
+        const todayStartDate = mergedStatus.todayStartDate || now.toISOString().split('T')[0]; // YYYY-MM-DD
+        
+        const currentUtilState = data.util > 0 ? 'WORKING' : 'IDLE';
+        const currentDate = now.toISOString().split('T')[0];
+        
+        // Check if it's a new day - reset daily tracking
+        if (currentDate !== todayStartDate) {
+          console.log(`📅 New day detected for ${craneId}. Resetting daily utilization.`);
+          mergedStatus.todayWorkingHours = 0;
+          mergedStatus.todayStartDate = currentDate;
+          mergedStatus.utilTimestamp = now.toISOString();
+          mergedStatus.utilState = currentUtilState;
+          mergedStatus.currentSessionStart = currentUtilState === 'WORKING' ? now.toISOString() : null;
+        } else {
+          // Same day - track state changes
+          const prevTime = new Date(prevUtilTimestamp);
+          const timeDiffHours = (now - prevTime) / (1000 * 60 * 60); // Convert to hours
+          
+          if (prevUtilState !== currentUtilState) {
+            // State changed
+            if (prevUtilState === 'WORKING' && timeDiffHours > 0) {
+              // Was working, now idle - add working time to today's total
+              mergedStatus.todayWorkingHours = (todayWorkingHours || 0) + timeDiffHours;
+              console.log(`⏱️  Crane ${craneId} stopped working. Session: ${timeDiffHours.toFixed(2)}h. Today total: ${mergedStatus.todayWorkingHours.toFixed(2)}h`);
+            }
+            
+            // Update state and timestamp
+            mergedStatus.utilState = currentUtilState;
+            mergedStatus.utilTimestamp = now.toISOString();
+            mergedStatus.currentSessionStart = currentUtilState === 'WORKING' ? now.toISOString() : null;
+            
+            if (currentUtilState === 'WORKING') {
+              console.log(`🟢 Crane ${craneId} started working`);
+            } else {
+              console.log(`🔴 Crane ${craneId} stopped working`);
+            }
+          } else if (currentUtilState === 'WORKING') {
+            // Still working - update timestamp for next calculation
+            mergedStatus.utilTimestamp = now.toISOString();
+          }
+        }
+        
+        // Calculate current metrics using standard formulas
+        // Formula: Total Available Hours = (Current Time - Start of Day) / (1000 × 60 × 60)
+        const startOfDay = new Date(now);
+        startOfDay.setHours(0, 0, 0, 0);
+        const totalDayHours = (now - startOfDay) / (1000 * 60 * 60); // Milliseconds to hours
+        
+        // Formula: Current Session Hours = (Current Time - Session Start Time) / (1000 × 60 × 60)
+        let currentSessionHours = 0;
+        if (currentUtilState === 'WORKING' && mergedStatus.currentSessionStart) {
+          const sessionStart = new Date(mergedStatus.currentSessionStart);
+          const sessionDurationMs = now - sessionStart;
+          currentSessionHours = sessionDurationMs / (1000 * 60 * 60); // Convert milliseconds to hours
+        }
+        
+        // Total working hours today (including current session)
+        // Formula: Total Working Hours = Completed Sessions + Current Session Hours
+        const totalWorkingHoursToday = (mergedStatus.todayWorkingHours || 0) + currentSessionHours;
+        
+        // Formula: Utilization % = (Total Working Hours / Total Available Hours) × 100
+        // Round to 2 decimal places: Math.round(value * 100) / 100
+        const utilizationPercentage = totalDayHours > 0 
+          ? Math.round((totalWorkingHoursToday / totalDayHours) * 100 * 100) / 100 
+          : 0;
+        
+        // Store metrics
+        mergedStatus.util = data.util; // Binary flag (0 or 1)
+        mergedStatus.utilization = Math.round(totalWorkingHoursToday * 60); // Total minutes for display (backward compatibility)
+        mergedStatus.utilizationHours = Math.round(totalWorkingHoursToday * 100) / 100; // Total hours (2 decimal places)
+        mergedStatus.utilizationPercentage = utilizationPercentage; // Percentage
+        mergedStatus.currentSessionHours = Math.round(currentSessionHours * 100) / 100; // Current session hours
+        mergedStatus.totalDayHours = Math.round(totalDayHours * 100) / 100; // Total hours since start of day
+      }
+      
       if (data.ut !== undefined && data.ut !== 'UNKNOWN') mergedStatus.ut = data.ut;
       
-      // Update test mode and overload flags
-      if (data.testMode !== undefined) mergedStatus.testMode = data.testMode;
-      if (data.overload !== undefined) mergedStatus.overload = data.overload;
+      // Track overload condition from protocol (OVERLOAD bit: 0 = normal, 1 = overload)
+      // Protocol only provides overload status, not actual load values
+      if (data.overload !== undefined) {
+        const prevOverloadState = mergedStatus.overloadState || 'NORMAL'; // 'NORMAL' or 'OVERLOAD'
+        const prevOverloadTimestamp = mergedStatus.overloadTimestamp || now.toISOString();
+        const todayOverloadEvents = mergedStatus.todayOverloadEvents || 0;
+        const todayOverloadMinutes = mergedStatus.todayOverloadMinutes || 0;
+        const todayStartDate = mergedStatus.todayStartDate || now.toISOString().split('T')[0];
+        
+        const currentOverloadState = data.overload ? 'OVERLOAD' : 'NORMAL';
+        const currentDate = now.toISOString().split('T')[0];
+        
+        // Check if it's a new day - reset daily tracking
+        if (currentDate !== todayStartDate) {
+          console.log(`📅 New day detected for ${craneId}. Resetting daily overload tracking.`);
+          mergedStatus.todayOverloadEvents = 0;
+          mergedStatus.todayOverloadMinutes = 0;
+          mergedStatus.todayStartDate = currentDate;
+          mergedStatus.overloadTimestamp = now.toISOString();
+          mergedStatus.overloadState = currentOverloadState;
+          mergedStatus.currentOverloadStart = currentOverloadState === 'OVERLOAD' ? now.toISOString() : null;
+        } else {
+          // Same day - track state changes
+          const prevTime = new Date(prevOverloadTimestamp);
+          const timeDiffMinutes = (now - prevTime) / (1000 * 60); // Convert to minutes
+          
+          if (prevOverloadState !== currentOverloadState) {
+            // State changed
+            if (prevOverloadState === 'OVERLOAD' && timeDiffMinutes > 0) {
+              // Overload ended - add duration to today's total
+              mergedStatus.todayOverloadMinutes = (todayOverloadMinutes || 0) + timeDiffMinutes;
+              mergedStatus.totalOverloadEvents = (mergedStatus.totalOverloadEvents || 0) + 1;
+              console.log(`✅ Crane ${craneId} overload cleared. Duration: ${timeDiffMinutes.toFixed(2)} min. Today total: ${mergedStatus.todayOverloadMinutes.toFixed(2)} min`);
+            }
+            
+            if (currentOverloadState === 'OVERLOAD') {
+              // Overload started
+              mergedStatus.todayOverloadEvents = (todayOverloadEvents || 0) + 1;
+              mergedStatus.currentOverloadStart = now.toISOString();
+              console.log(`🚨 OVERLOAD DETECTED for crane ${craneId}! Event #${mergedStatus.todayOverloadEvents} today.`);
+              
+              // Generate overload alert
+              await this.checkOverloadAlerts(craneId, mergedStatus);
+            }
+            
+            // Update state and timestamp
+            mergedStatus.overloadState = currentOverloadState;
+            mergedStatus.overloadTimestamp = now.toISOString();
+          } else if (currentOverloadState === 'OVERLOAD') {
+            // Still overloaded - update timestamp for next calculation
+            mergedStatus.overloadTimestamp = now.toISOString();
+          }
+        }
+        
+        // Calculate current overload metrics
+        let currentOverloadMinutes = 0;
+        if (currentOverloadState === 'OVERLOAD' && mergedStatus.currentOverloadStart) {
+          const overloadStart = new Date(mergedStatus.currentOverloadStart);
+          const overloadDurationMs = now - overloadStart;
+          currentOverloadMinutes = overloadDurationMs / (1000 * 60);
+        }
+        
+        // Total overload minutes today (including current overload)
+        const totalOverloadMinutesToday = (mergedStatus.todayOverloadMinutes || 0) + currentOverloadMinutes;
+        
+        // Calculate overload percentage of operating time
+        // Formula: Overload % = (Overload Time / Operating Time) × 100
+        const todayOperatingHours = mergedStatus.utilizationHours || 0;
+        const todayOperatingMinutes = todayOperatingHours * 60;
+        const overloadPercentage = todayOperatingMinutes > 0
+          ? Math.round((totalOverloadMinutesToday / todayOperatingMinutes) * 100 * 100) / 100
+          : 0;
+        
+        // Calculate risk level
+        // Formula: Risk based on overloads per day
+        const overloadsPerDay = mergedStatus.todayOverloadEvents || 0;
+        let riskLevel = 'MINIMAL';
+        if (overloadsPerDay > 5) riskLevel = 'HIGH';
+        else if (overloadsPerDay > 2) riskLevel = 'MEDIUM';
+        else if (overloadsPerDay > 0) riskLevel = 'LOW';
+        
+        // Store metrics
+        mergedStatus.overload = data.overload; // Binary flag (0 or 1)
+        mergedStatus.overloadState = currentOverloadState;
+        mergedStatus.totalOverloadMinutes = Math.round(totalOverloadMinutesToday * 100) / 100;
+        mergedStatus.overloadPercentage = overloadPercentage;
+        mergedStatus.currentOverloadMinutes = Math.round(currentOverloadMinutes * 100) / 100;
+        mergedStatus.riskLevel = riskLevel;
+      }
       
       // Update other command-specific fields
       if (data.operatingMode) mergedStatus.operatingMode = data.operatingMode;
       if (data.testType) mergedStatus.testType = data.testType;
       if (data.testResults) mergedStatus.testResults = data.testResults;
       
-      // Update ticket info (from TICKET command)
-      if (data.ticketNumber !== undefined) mergedStatus.ticketNumber = data.ticketNumber;
-      if (data.ticketType !== undefined) mergedStatus.ticketType = data.ticketType;
-      if (data.ticketStatus) mergedStatus.ticketStatus = data.ticketStatus;
+      // Update ticket info with "sticky open" logic:
+      // Once a ticket is open, it stays open until explicitly closed by a TICKET command
+      // Only update ticket data if:
+      // 1. New data is from a TICKET command (has ticketNumber/ticketType), OR
+      // 2. New data explicitly closes the ticket (isTicketOpen = false from TICKET command)
+      if (data.commandType === 'ticket') {
+        // This is a TICKET command - update all ticket fields
+        if (data.ticketNumber !== undefined) mergedStatus.ticketNumber = data.ticketNumber;
+        if (data.ticketType !== undefined) mergedStatus.ticketType = data.ticketType;
+        if (data.ticketStatus) mergedStatus.ticketStatus = data.ticketStatus;
+        if (data.isTicketOpen !== undefined) mergedStatus.isTicketOpen = data.isTicketOpen;
+        if (data.ticketTypeInfo) mergedStatus.ticketTypeInfo = data.ticketTypeInfo;
+      } else {
+        // This is NOT a TICKET command (heartbeat, event, load, etc.)
+        // Preserve existing ticket status - don't overwrite with undefined/null
+        // Only clear ticket if explicitly closed (shouldn't happen from non-ticket commands, but be safe)
+        if (mergedStatus.isTicketOpen === true) {
+          // Ticket is open - keep it open, don't overwrite
+          // Don't update ticket fields from non-ticket commands
+        } else if (data.isTicketOpen === false) {
+          // Explicitly closed (shouldn't happen from non-ticket commands, but handle it)
+          mergedStatus.isTicketOpen = false;
+        }
+        // If ticket was never set, leave it as is (undefined/null)
+      }
       
       // Update device info
       if (data.craneId) mergedStatus.craneId = data.craneId;
@@ -709,18 +1110,201 @@ class MQTTClient {
       );
 
       if (result) {
+        const allSwitchesCurrentlyHit = mergedStatus.ls1 === 'HIT' && mergedStatus.ls2 === 'HIT' && 
+                                       mergedStatus.ls3 === 'HIT' && mergedStatus.ls4 === 'HIT';
+        const allSwitchesTestedToday = mergedStatus.ls1TestedToday && mergedStatus.ls2TestedToday && 
+                                      mergedStatus.ls3TestedToday && mergedStatus.ls4TestedToday;
         console.log(`✅ Updated crane status for ${craneId} [${data.commandType?.toUpperCase()}]:`, {
+          // Current protocol states (what's HIT now)
           ls1: mergedStatus.ls1,
           ls2: mergedStatus.ls2,
           ls3: mergedStatus.ls3,
           ls4: mergedStatus.ls4,
+          // Test progress tracking
+          ls1TestedToday: mergedStatus.ls1TestedToday ? '✅' : '❌',
+          ls2TestedToday: mergedStatus.ls2TestedToday ? '✅' : '❌',
+          ls3TestedToday: mergedStatus.ls3TestedToday ? '✅' : '❌',
+          ls4TestedToday: mergedStatus.ls4TestedToday ? '✅' : '❌',
+          // Hit counts for statistics
+          ls1Hits: mergedStatus.ls1HitCount || 0,
+          ls2Hits: mergedStatus.ls2HitCount || 0,
+          ls3Hits: mergedStatus.ls3HitCount || 0,
+          ls4Hits: mergedStatus.ls4HitCount || 0,
+          allSwitchesTestedToday: allSwitchesTestedToday ? '✅ YES' : '❌ NO',
+          allSwitchesCurrentlyHit: allSwitchesCurrentlyHit ? '✅ YES' : '❌ NO',
           load: mergedStatus.load,
           util: mergedStatus.util,
-          testMode: mergedStatus.testMode
+          // Utilization metrics
+          utilState: mergedStatus.utilState || 'IDLE',
+          utilizationHours: mergedStatus.utilizationHours || 0,
+          utilizationPercentage: mergedStatus.utilizationPercentage || 0,
+          currentSessionHours: mergedStatus.currentSessionHours || 0,
+          todayWorkingHours: mergedStatus.todayWorkingHours || 0,
+          // Overload metrics
+          overloadState: mergedStatus.overloadState || 'NORMAL',
+          overload: mergedStatus.overload || false,
+          todayOverloadEvents: mergedStatus.todayOverloadEvents || 0,
+          todayOverloadMinutes: mergedStatus.todayOverloadMinutes || 0,
+          currentOverloadMinutes: mergedStatus.currentOverloadMinutes || 0,
+          overloadPercentage: mergedStatus.overloadPercentage || 0,
+          riskLevel: mergedStatus.riskLevel || 'MINIMAL',
+          testMode: mergedStatus.testMode ? '✅ Test Done' : '❌ Test Not Done',
+          testDoneAt: mergedStatus.testDoneAt ? new Date(mergedStatus.testDoneAt).toLocaleString() : 'N/A',
+          isTicketOpen: mergedStatus.isTicketOpen,
+          ticketNumber: mergedStatus.ticketNumber,
+          ticketType: mergedStatus.ticketType,
+          ticketTypeInfo: mergedStatus.ticketTypeInfo
         });
       }
     } catch (error) {
       console.error(`Error updating crane status for ${craneId}:`, error);
+    }
+  }
+
+  async handleTicketCommand(craneId, ticketData) {
+    try {
+      console.log(`🎫 handleTicketCommand called for crane ${craneId}:`, {
+        ticketNumber: ticketData.ticketNumber,
+        ticketType: ticketData.ticketType,
+        ticketTypeInfo: ticketData.ticketTypeInfo,
+        isTicketOpen: ticketData.isTicketOpen
+      });
+
+      const crane = await Crane.findOne({ craneId });
+      if (!crane) {
+        console.log(`⚠️ Crane ${craneId} not found for ticket handling`);
+        return;
+      }
+
+      const ticketNumber = ticketData.ticketNumber;
+      const isOpen = ticketData.isTicketOpen === true;
+      const ticketType = ticketData.ticketType || 0;
+      const ticketTypeInfo = ticketData.ticketTypeInfo || { problem: 'Unknown Issue', description: 'No description', severity: 'warning' };
+      
+      console.log(`🎫 Processing ticket:`, {
+        ticketNumber,
+        isOpen,
+        ticketType,
+        ticketTypeInfo
+      });
+
+      // Find existing ticket for this crane with matching MQTT ticket number
+      // We store the MQTT ticket number in tags for lookup
+      const existingTicket = await Ticket.findOne({
+        craneId,
+        tags: { $in: [`mqtt-ticket-${ticketNumber}`] }
+      });
+
+      if (isOpen) {
+        // Ticket is OPEN - create or update ticket
+        if (existingTicket) {
+          // Update existing ticket if it was closed
+          if (existingTicket.status === 'closed' || existingTicket.status === 'resolved') {
+            existingTicket.status = 'open';
+            existingTicket.severity = ticketTypeInfo.severity === 'critical' ? 'critical' : 
+                                     ticketTypeInfo.severity === 'warning' ? 'high' : 'medium';
+            await existingTicket.save();
+            console.log(`✅ Reopened ticket #${ticketNumber} for crane ${craneId}`);
+          }
+        } else {
+          // Create new ticket
+          const User = require('./models/User');
+          // Try to find any operator, manager, or admin to use as createdBy
+          let systemUser = await User.findOne({ role: { $in: ['operator', 'manager', 'admin'] } }).limit(1);
+          
+          if (!systemUser) {
+            // If no user found, try to find any user at all
+            systemUser = await User.findOne().limit(1);
+          }
+          
+          if (!systemUser) {
+            console.log(`⚠️ No user found in database, cannot create ticket for crane ${craneId}`);
+            console.log(`⚠️ Please create at least one user in the system`);
+            return;
+          }
+
+          console.log(`👤 Using user ${systemUser.email} (${systemUser.role}) as ticket creator`);
+
+          const ticket = new Ticket({
+            craneId,
+            title: ticketTypeInfo.problem || 'Crane Issue',
+            description: `Ticket #${ticketNumber}: ${ticketTypeInfo.description || ticketTypeInfo.problem}`,
+            type: ticketTypeInfo.severity === 'critical' ? 'safety' : 'operational',
+            severity: ticketTypeInfo.severity === 'critical' ? 'critical' : 
+                     ticketTypeInfo.severity === 'warning' ? 'high' : 'medium',
+            priority: ticketTypeInfo.severity === 'critical' ? 'urgent' : 'normal',
+            createdBy: systemUser._id,
+            status: 'open',
+            tags: [`mqtt-ticket-${ticketNumber}`, `type-${ticketType}`] // Store MQTT ticket number in tags for lookup
+          });
+
+          try {
+            await ticket.save();
+            
+            // Add ticket to crane's tickets array
+            await Crane.findByIdAndUpdate(crane._id, {
+              $addToSet: { tickets: ticket._id }
+            });
+
+            console.log(`✅ Created ticket #${ticketNumber} (${ticket.ticketId}) for crane ${craneId}:`, {
+              title: ticket.title,
+              description: ticket.description,
+              type: ticket.type,
+              severity: ticket.severity,
+              priority: ticket.priority,
+              ticketTypeInfo: ticketTypeInfo,
+              craneId: ticket.craneId
+            });
+          } catch (saveError) {
+            console.error(`❌ Failed to save ticket for crane ${craneId}:`, saveError.message);
+            if (saveError.errors) {
+              console.error('Validation errors:', Object.keys(saveError.errors).map(key => ({
+                field: key,
+                message: saveError.errors[key].message
+              })));
+            }
+          }
+        }
+      } else {
+        // Ticket is CLOSED - close existing ticket
+        if (existingTicket && (existingTicket.status === 'open' || existingTicket.status === 'in_progress')) {
+          existingTicket.status = 'closed';
+          existingTicket.resolvedAt = new Date();
+          await existingTicket.save();
+          console.log(`✅ Closed ticket #${ticketNumber} for crane ${craneId}`);
+        }
+      }
+    } catch (error) {
+      console.error(`Error handling ticket command for crane ${craneId}:`, error);
+    }
+  }
+
+  async checkOverloadAlerts(craneId, mergedStatus) {
+    try {
+      const crane = await Crane.findOne({ craneId });
+      if (!crane) return;
+
+      const todayOverloadEvents = mergedStatus.todayOverloadEvents || 0;
+      const currentOverloadMinutes = mergedStatus.currentOverloadMinutes || 0;
+      
+      // Check for extended overload (more than 5 minutes)
+      if (currentOverloadMinutes > 5) {
+        await this.createAlert(craneId, 'overload', 'critical', 
+          `Extended overload condition detected: ${currentOverloadMinutes.toFixed(1)} minutes - immediate intervention required`);
+      } else {
+        // Standard overload alert
+        await this.createAlert(craneId, 'overload', 'high', 
+          `Crane overload condition detected (OVERLOAD bit = 1)`);
+      }
+      
+      // Check for frequent overloads (more than 3 in last 10 minutes)
+      // This would require tracking recent overload events, simplified here
+      if (todayOverloadEvents > 3) {
+        await this.createAlert(craneId, 'overload', 'critical', 
+          `Multiple overload events detected today (${todayOverloadEvents} events) - check load management`);
+      }
+    } catch (error) {
+      console.error(`Error checking overload alerts for crane ${craneId}:`, error);
     }
   }
 
@@ -729,56 +1313,92 @@ class MQTTClient {
       const crane = await Crane.findOne({ craneId });
       if (!crane) return;
 
-      // Check for overload alert
-      if (data.load && data.swl && data.load > data.swl) {
-        await this.createAlert(craneId, 'overload', 'critical', 
-          `Crane overload detected: ${data.load}kg > ${data.swl}kg SWL`);
-      }
-
+      // Note: Protocol only provides OVERLOAD bit (0 or 1), not actual load values
+      // Overload alerts are handled in checkOverloadAlerts() when overload state changes
+      
       // Check for limit switch failures
-      const limitSwitches = ['ls1', 'ls2', 'ls3'];
+      const limitSwitches = ['ls1', 'ls2', 'ls3', 'ls4'];
       for (const ls of limitSwitches) {
         if (data[ls] === 'FAIL') {
-          await this.createAlert(craneId, 'limit_switch', 'warning', 
+          await this.createAlert(craneId, 'limit_switch', 'high', 
             `Limit switch ${ls.toUpperCase()} failure detected`);
         }
       }
 
-      // Check for utilization issues
-      if (data.util && data.util > 95) {
-        await this.createAlert(craneId, 'utilization', 'warning', 
-          `High utilization detected: ${data.util}%`);
+      // Check for utilization issues (if using percentage)
+      if (data.utilizationPercentage && data.utilizationPercentage > 95) {
+        await this.createAlert(craneId, 'utilization', 'medium', 
+          `High utilization detected: ${data.utilizationPercentage.toFixed(2)}%`);
       }
     } catch (error) {
       console.error(`Error checking alerts for crane ${craneId}:`, error);
     }
   }
 
-  async createAlert(craneId, type, severity, message) {
+  async createAlert(craneId, alertType, alertSeverity, message) {
     try {
+      // Map alert types to valid Ticket types
+      const typeMap = {
+        'overload': 'safety',
+        'limit_switch': 'safety',
+        'utilization': 'operational',
+        'offline': 'operational'
+      };
+      
+      // Map alert severity to valid Ticket severity
+      const severityMap = {
+        'critical': 'critical',
+        'warning': 'high',
+        'high': 'high',
+        'medium': 'medium',
+        'low': 'low'
+      };
+
+      const ticketType = typeMap[alertType] || 'operational';
+      const ticketSeverity = severityMap[alertSeverity] || 'medium';
+
+      // Find a system operator user for system-generated tickets
+      // If no operator exists, skip ticket creation and just log the alert
+      const User = require('./models/User');
+      const systemOperator = await User.findOne({ role: 'operator' }).limit(1);
+      
+      if (!systemOperator) {
+        // No operator exists, just log the alert without creating a ticket
+        console.log(`⚠️ Alert for crane ${craneId} [${ticketType}/${ticketSeverity}]: ${message}`);
+        return;
+      }
+
+      // Create title and description from message
+      const title = message.length > 200 ? message.substring(0, 197) + '...' : message;
+      const description = message;
+
       // Check if similar alert already exists (deduplication)
       const existingTicket = await Ticket.findOne({
         craneId,
-        type,
+        type: ticketType,
         status: { $in: ['open', 'in_progress'] },
         createdAt: { $gte: new Date(Date.now() - 5 * 60 * 1000) } // Last 5 minutes
       });
 
       if (existingTicket) {
-        // Update existing ticket
-        existingTicket.message = message;
-        existingTicket.severity = severity;
+        // Update existing ticket description if it's different
+        if (existingTicket.description !== description) {
+          existingTicket.description = description;
+          existingTicket.severity = ticketSeverity;
         await existingTicket.save();
+        }
         return;
       }
 
-      // Create new ticket
+      // Create new ticket with proper schema fields
       const ticket = new Ticket({
         craneId,
-        type,
-        severity,
-        message,
-        createdBy: 'system',
+        title,
+        description,
+        type: ticketType,
+        severity: ticketSeverity,
+        priority: ticketSeverity === 'critical' ? 'urgent' : ticketSeverity === 'high' ? 'high' : 'normal',
+        createdBy: systemOperator._id,
         status: 'open'
       });
 
@@ -794,7 +1414,7 @@ class MQTTClient {
         });
       }
 
-      console.log(`Created ${severity} alert for crane ${craneId}: ${message}`);
+      console.log(`✅ Created ${ticketSeverity} alert ticket for crane ${craneId}: ${title}`);
     } catch (error) {
       console.error(`Error creating alert for crane ${craneId}:`, error);
     }

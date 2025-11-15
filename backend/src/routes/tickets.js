@@ -30,17 +30,61 @@ router.get('/', authenticateToken, async (req, res) => {
 
     // Filter by crane access
     if (user.role === 'operator') {
-      query.craneId = { $in: Array.isArray(user.assignedCranes) ? user.assignedCranes : [] };
+      const assignedCranes = Array.isArray(user.assignedCranes) ? user.assignedCranes : [];
+      if (craneId) {
+        // If specific craneId requested, check if user has access
+        if (assignedCranes.includes(craneId)) {
+          query.craneId = craneId;
+        } else {
+          // User doesn't have access to this crane
+          return res.json({
+            data: { tickets: [] },
+            pagination: { page: parseInt(page), limit: parseInt(limit), total: 0, pages: 0 }
+          });
+        }
+      } else {
+        query.craneId = { $in: assignedCranes };
+      }
     } else if (user.role === 'manager') {
-      query.craneId = { $in: Array.isArray(user.assignedCranes) ? user.assignedCranes : [] };
+      const assignedCranes = Array.isArray(user.assignedCranes) ? user.assignedCranes : [];
+      if (craneId) {
+        // If specific craneId requested, check if user has access
+        if (assignedCranes.includes(craneId)) {
+          query.craneId = craneId;
+        } else {
+          // User doesn't have access to this crane
+          return res.json({
+            data: { tickets: [] },
+            pagination: { page: parseInt(page), limit: parseInt(limit), total: 0, pages: 0 }
+          });
+        }
+      } else {
+        query.craneId = { $in: assignedCranes };
+      }
     } else if (user.role === 'supervisor') {
-      query.craneId = { $in: Array.isArray(user.assignedCranes) ? user.assignedCranes : [] };
+      const assignedCranes = Array.isArray(user.assignedCranes) ? user.assignedCranes : [];
+      if (craneId) {
+        // If specific craneId requested, check if user has access
+        if (assignedCranes.includes(craneId)) {
+          query.craneId = craneId;
+        } else {
+          // User doesn't have access to this crane
+          return res.json({
+            data: { tickets: [] },
+            pagination: { page: parseInt(page), limit: parseInt(limit), total: 0, pages: 0 }
+          });
+        }
+      } else {
+        query.craneId = { $in: assignedCranes };
+      }
+    } else {
+      // Admin/Super Admin can see all tickets
+      if (craneId) query.craneId = craneId;
     }
-    // Admin can see all tickets
 
     // Additional filters
-    if (craneId) query.craneId = craneId;
-    if (status) query.status = status;
+    // Only filter by status if it's not 'all'
+    if (status && status !== 'all') query.status = status;
     if (severity) query.severity = severity;
     if (type) query.type = type;
 
@@ -51,6 +95,10 @@ router.get('/', authenticateToken, async (req, res) => {
       if (to) query.createdAt.$lte = new Date(to);
     }
 
+    // Debug logging
+    console.log(`🔍 GET /api/tickets - Query:`, JSON.stringify(query, null, 2));
+    console.log(`🔍 User role: ${user.role}, craneId param: ${craneId}`);
+
     // Get tickets with pagination
     const tickets = await Ticket.find(query)
       .populate('assignedTo', 'name email')
@@ -60,10 +108,26 @@ router.get('/', authenticateToken, async (req, res) => {
 
     // Get total count
     const total = await Ticket.countDocuments(query);
+    
+    console.log(`🔍 Found ${tickets.length} tickets (total: ${total})`);
+    console.log(`🔍 Ticket IDs:`, tickets.map(t => t.ticketId || t._id));
+
+    const ticketData = tickets.map(ticket => {
+      const ticketObj = ticket.toObject();
+      const summary = ticket.getSummary();
+      return {
+        ...ticketObj,
+        ...summary,
+        _id: ticketObj._id,
+        ticketId: ticketObj.ticketId || summary.ticketId
+      };
+    });
+
+    console.log(`🔍 Sending ${ticketData.length} tickets to frontend`);
 
     res.json({
       data: {
-        tickets: tickets.map(ticket => ticket.getSummary())
+        tickets: ticketData
       },
       pagination: {
         page: parseInt(page),
@@ -194,11 +258,35 @@ router.patch('/:id', authenticateToken, async (req, res) => {
     if (status) {
       if (status === 'closed') {
         await ticket.close(user.email, resolution || '');
+      } else if (status === 'resolved') {
+        // Use the resolve method from Ticket model
+        await ticket.resolve(resolution || `Resolved by ${user.name || user.email}`, user._id);
       } else if (status === 'in_progress' && assignedTo) {
         await ticket.assign(assignedTo);
       } else {
         ticket.status = status;
         await ticket.save();
+      }
+    }
+
+    // After updating ticket, check if all tickets for this crane are resolved
+    // If all tickets are resolved, update crane's lastStatusRaw to show "No Tickets"
+    if (status === 'resolved' || status === 'closed') {
+      const Crane = require('../models/Crane');
+      const allTicketsForCrane = await Ticket.find({
+        craneId: ticket.craneId,
+        status: { $nin: ['resolved', 'closed', 'cancelled'] }
+      });
+
+      // If no open/in_progress tickets remain, update crane status
+      if (allTicketsForCrane.length === 0) {
+        const crane = await Crane.findOne({ craneId: ticket.craneId });
+        if (crane && crane.lastStatusRaw) {
+          crane.lastStatusRaw.isTicketOpen = false;
+          crane.lastStatusRaw.ticketStatus = 'closed';
+          await crane.save();
+          console.log(`✅ All tickets resolved for crane ${ticket.craneId}, updated crane status`);
+        }
       }
     }
 

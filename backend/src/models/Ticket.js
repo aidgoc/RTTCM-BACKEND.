@@ -50,18 +50,19 @@ const ticketSchema = new mongoose.Schema({
     enum: ['low', 'normal', 'high', 'urgent'],
     default: 'normal'
   },
-  // Who created the ticket (operator)
+  // Who created the ticket (can be operator, system, or any user for MQTT tickets)
   createdBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
     required: true,
     validate: {
       validator: async function(userId) {
+        if (!userId) return false;
         const User = mongoose.model('User');
         const user = await User.findById(userId);
-        return user && user.role === 'operator';
+        return !!user; // Just check that user exists, allow any role
       },
-      message: 'Ticket creator must be an operator'
+      message: 'Ticket creator must be a valid user'
     }
   },
   // Who is assigned to handle the ticket (supervisor/manager)
