@@ -831,40 +831,59 @@ class MQTTClient {
         }
       }
       
-      // Check if all 4 limit switches have been tested today (even if not all HIT at same time)
+      // NEW LOGIC: Check TEST bit from protocol (bit 4)
+      // TEST=1 means "Test Mode Activated" (ready to test)
+      // All 4 switches tested = "Test Completed"
+      const now = new Date(); // Define now before using it
+      
+      // Track test mode activation from protocol TEST bit
+      if (data.testMode !== undefined) {
+        if (data.testMode === true && !mergedStatus.testModeActivated) {
+          // Test mode just activated
+          mergedStatus.testModeActivated = true;
+          mergedStatus.testActivatedAt = now.toISOString();
+          console.log(`🔧 Test Mode ACTIVATED for ${craneId} at ${now.toLocaleString()}`);
+        } else if (data.testMode === false && mergedStatus.testModeActivated) {
+          // Test mode deactivated (operator finished or cancelled)
+          mergedStatus.testModeActivated = false;
+          console.log(`⏸️ Test Mode DEACTIVATED for ${craneId}`);
+        }
+      }
+      
+      // Check if all 4 limit switches have been tested
       const allSwitchesTested = mergedStatus.ls1TestedToday && 
                                 mergedStatus.ls2TestedToday && 
                                 mergedStatus.ls3TestedToday && 
                                 mergedStatus.ls4TestedToday;
       
-      // Check if test was already done today
+      // Check if test was already completed today
       const testDoneAt = mergedStatus.testDoneAt ? new Date(mergedStatus.testDoneAt) : null;
-      const now = new Date(); // Define now before using it in utilization calculation
       const hoursSinceTest = testDoneAt ? (now - testDoneAt) / (1000 * 60 * 60) : 24;
       
       // If 24 hours have passed since last test, reset test status
       if (testDoneAt && hoursSinceTest >= 24) {
-        mergedStatus.testMode = false;
+        mergedStatus.testModeCompleted = false;
+        mergedStatus.testModeActivated = false;
         mergedStatus.testDoneAt = null;
         // Reset test tracking for new cycle
         mergedStatus.ls1TestedToday = false;
         mergedStatus.ls2TestedToday = false;
         mergedStatus.ls3TestedToday = false;
         mergedStatus.ls4TestedToday = false;
-        console.log(`⏰ 24 hours passed - Resetting Test Done status for ${craneId}. Ready for new test.`);
+        console.log(`⏰ 24 hours passed - Resetting Test status for ${craneId}. Ready for new test.`);
       }
       
-      // If all 4 switches have been tested today (even if not all HIT at same time) and test is not done yet, mark test as done
-      if (allSwitchesTested && !mergedStatus.testMode) {
-        mergedStatus.testMode = true;
+      // If all 4 switches have been tested and test not already completed, mark test as completed
+      if (allSwitchesTested && !mergedStatus.testModeCompleted) {
+        mergedStatus.testModeCompleted = true;
+        mergedStatus.testModeActivated = false; // Deactivate once completed
         mergedStatus.testDoneAt = now.toISOString();
         
-        // Note: We don't reset switches to OK here because protocol controls the current state
-        // Protocol will send OK for switches as operator moves to next switch
-        // We just mark that all switches have been tested today
-        
-        console.log(`🎉 All 4 limit switches tested today - Test Done for ${craneId} at ${now.toLocaleString()}`);
+        console.log(`🎉 All 4 limit switches tested - Test COMPLETED for ${craneId} at ${now.toLocaleString()}`);
       }
+      
+      // Maintain backward compatibility with old testMode field
+      mergedStatus.testMode = mergedStatus.testModeCompleted;
       
       // After test is done, still count hits if switches are hit again (for statistics)
       // But don't mark them as tested (already tested today)
@@ -1148,6 +1167,8 @@ class MQTTClient {
           currentOverloadMinutes: mergedStatus.currentOverloadMinutes || 0,
           overloadPercentage: mergedStatus.overloadPercentage || 0,
           riskLevel: mergedStatus.riskLevel || 'MINIMAL',
+          testModeActivated: mergedStatus.testModeActivated ? '🔧 ACTIVATED' : '⏸️ Not Activated',
+          testModeCompleted: mergedStatus.testModeCompleted ? '✅ COMPLETED' : '❌ Not Completed',
           testMode: mergedStatus.testMode ? '✅ Test Done' : '❌ Test Not Done',
           testDoneAt: mergedStatus.testDoneAt ? new Date(mergedStatus.testDoneAt).toLocaleString() : 'N/A',
           isTicketOpen: mergedStatus.isTicketOpen,
