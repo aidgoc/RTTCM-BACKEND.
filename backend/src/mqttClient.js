@@ -591,13 +591,13 @@ class MQTTClient {
 
       const { crane, isNew, isPending } = discoveryResult;
 
-      // Get SWL from crane record if available, otherwise use parsed value
-      let swl = telemetryData.swl || 1;
-      if (crane && crane.swl) {
-        swl = crane.swl;
-      } else if (telemetryData.swl && Number(telemetryData.swl) > 0) {
-        swl = Number(telemetryData.swl);
-      }
+      // NOTE: DRM device ONLY sends LOAD data, NOT SWL
+      // SWL is not used for overload detection - we use the OL bit from device
+      // Telemetry is saved every time an EVENT message is received (typically every 5-6 seconds when crane is operating)
+
+      // Get current crane status to retrieve hit counts
+      const currentCrane = await Crane.findOne({ craneId: telemetryData.craneId });
+      const currentStatus = currentCrane?.lastStatusRaw || {};
 
       // Create telemetry record (save even for pending cranes)
       console.log(`🔧 Creating telemetry document for ${telemetryData.craneId}...`);
@@ -605,7 +605,12 @@ class MQTTClient {
         craneId: telemetryData.craneId,
         ts: new Date(telemetryData.ts),
         load: telemetryData.load || 0,
-        swl: swl,
+        // Limit switch hit counters (cumulative for the day)
+        ls1HitCount: currentStatus.ls1HitCount || 0,
+        ls2HitCount: currentStatus.ls2HitCount || 0,
+        ls3HitCount: currentStatus.ls3HitCount || 0,
+        ls4HitCount: currentStatus.ls4HitCount || 0,
+        // Limit switch status (current state)
         ls1: telemetryData.ls1 || 'UNKNOWN',
         ls2: telemetryData.ls2 || 'UNKNOWN',
         ls3: telemetryData.ls3 || 'UNKNOWN',
@@ -684,8 +689,11 @@ class MQTTClient {
           craneId: telemetry.craneId,
           ts: telemetry.ts,
           load: telemetry.load,
-          swl: telemetry.swl,
           util: telemetry.util,
+          ls1HitCount: telemetry.ls1HitCount,
+          ls2HitCount: telemetry.ls2HitCount,
+          ls3HitCount: telemetry.ls3HitCount,
+          ls4HitCount: telemetry.ls4HitCount,
           raw: telemetry.raw?.substring(0, 100)
         });
         throw saveError; // Re-throw to be caught by outer catch
@@ -1031,8 +1039,9 @@ class MQTTClient {
               mergedStatus.currentOverloadStart = now.toISOString();
               console.log(`🚨 OVERLOAD DETECTED for crane ${craneId}! Event #${mergedStatus.todayOverloadEvents} today.`);
               
-              // Generate overload alert
-              await this.checkOverloadAlerts(craneId, mergedStatus);
+              // Note: Automatic overload ticket creation is DISABLED
+              // Only MQTT TICKET commands (0x03) from device will create tickets
+              // await this.checkOverloadAlerts(craneId, mergedStatus);
             }
             
             // Update state and timestamp
@@ -1334,23 +1343,33 @@ class MQTTClient {
       const crane = await Crane.findOne({ craneId });
       if (!crane) return;
 
-      // Note: Protocol only provides OVERLOAD bit (0 or 1), not actual load values
-      // Overload alerts are handled in checkOverloadAlerts() when overload state changes
-      
-      // Check for limit switch failures
-      const limitSwitches = ['ls1', 'ls2', 'ls3', 'ls4'];
-      for (const ls of limitSwitches) {
-        if (data[ls] === 'FAIL') {
-          await this.createAlert(craneId, 'limit_switch', 'high', 
-            `Limit switch ${ls.toUpperCase()} failure detected`);
-        }
-      }
+      // ============================================================================
+      // AUTOMATIC TICKET CREATION IS DISABLED
+      // ============================================================================
+      // Only MQTT TICKET commands (0x03) from the DRM device will create tickets
+      // These are the 15 crane problems from Table 7:
+      // 0 = Trolley Movement, 1 = Hook Movement, 2 = Jib Rotation Problem, etc.
+      // 
+      // Overload, limit switch failures, and utilization alerts are monitored
+      // but will NOT automatically create tickets. They are only displayed in UI.
+      // ============================================================================
 
-      // Check for utilization issues (if using percentage)
-      if (data.utilizationPercentage && data.utilizationPercentage > 95) {
-        await this.createAlert(craneId, 'utilization', 'medium', 
-          `High utilization detected: ${data.utilizationPercentage.toFixed(2)}%`);
-      }
+      // Note: All automatic alert ticket creation commented out below:
+      
+      // Check for limit switch failures (DISABLED - no auto tickets)
+      // const limitSwitches = ['ls1', 'ls2', 'ls3', 'ls4'];
+      // for (const ls of limitSwitches) {
+      //   if (data[ls] === 'FAIL') {
+      //     await this.createAlert(craneId, 'limit_switch', 'high', 
+      //       `Limit switch ${ls.toUpperCase()} failure detected`);
+      //   }
+      // }
+
+      // Check for utilization issues (DISABLED - no auto tickets)
+      // if (data.utilizationPercentage && data.utilizationPercentage > 95) {
+      //   await this.createAlert(craneId, 'utilization', 'medium', 
+      //     `High utilization detected: ${data.utilizationPercentage.toFixed(2)}%`);
+      // }
     } catch (error) {
       console.error(`Error checking alerts for crane ${craneId}:`, error);
     }
@@ -1579,7 +1598,7 @@ class MQTTClient {
         craneId: testData.craneId || craneId,
         ts: new Date(testData.timestamp || new Date()),
         load: testData.load || 0,
-        swl: testData.swl || crane.swl,
+        swl: null, // SWL is not sent by DRM device
         ls1: testData.testResults?.ls1 || 'UNKNOWN',
         ls2: testData.testResults?.ls2 || 'UNKNOWN',
         ls3: testData.testResults?.ls3 || 'UNKNOWN',
@@ -1588,6 +1607,7 @@ class MQTTClient {
         operatingMode: 'test',
         testType: testData.testType,
         testResults: testData.testResults,
+        testMode: true, // Mark as test mode
         raw: JSON.stringify(testData)
       });
 
@@ -1698,7 +1718,7 @@ class MQTTClient {
         craneId,
         ts: new Date(heartbeatData.timestamp || new Date()),
         load: heartbeatData.load || 0,
-        swl: heartbeatData.swl || crane.swl,
+        // SWL removed - device does not send SWL
         ls1: heartbeatData.ls1 || 'UNKNOWN',
         ls2: heartbeatData.ls2 || 'UNKNOWN',
         ls3: heartbeatData.ls3 || 'UNKNOWN',

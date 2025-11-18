@@ -67,12 +67,9 @@ const craneSchema = new mongoose.Schema({
       maxlength: 100
     }
   },
-  swl: {
-    type: Number,
-    required: true,
-    min: 1,
-    max: 100000 // Maximum 100 tons (100,000 kg)
-  },
+  // SWL (Safe Working Load) removed - DRM device does not send SWL
+  // Overload detection is done by the device using the OL bit
+  // If you need to track crane capacity for reference, use a separate field
   managerUserId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',

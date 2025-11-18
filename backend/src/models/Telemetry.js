@@ -15,11 +15,26 @@ const telemetrySchema = new mongoose.Schema({
     min: 0,
     max: 10000
   },
-  swl: {
+  // Limit switch hit counters (cumulative count for the day)
+  ls1HitCount: {
     type: Number,
-    required: true,
-    min: 1,
-    max: 10000
+    default: 0,
+    min: 0
+  },
+  ls2HitCount: {
+    type: Number,
+    default: 0,
+    min: 0
+  },
+  ls3HitCount: {
+    type: Number,
+    default: 0,
+    min: 0
+  },
+  ls4HitCount: {
+    type: Number,
+    default: 0,
+    min: 0
   },
   ls1: {
     type: String,
@@ -147,9 +162,9 @@ telemetrySchema.index({ craneId: 1, ts: -1, load: 1 }); // Load analysis queries
 telemetrySchema.index({ craneId: 1, ts: -1, util: 1 }); // Utilization trends
 telemetrySchema.index({ craneId: 1, ts: -1, 'ls1': 1, 'ls2': 1, 'ls3': 1, 'ls4': 1 }); // Limit switch queries
 
-// Overload detection indexes
-telemetrySchema.index({ craneId: 1, load: 1, swl: 1 }); // Overload detection
-telemetrySchema.index({ load: 1, swl: 1 }); // Global overload queries
+// Overload detection indexes (using OL bit from device, not calculated)
+telemetrySchema.index({ craneId: 1, overload: 1, ts: -1 }); // Overload history
+telemetrySchema.index({ overload: 1, ts: -1 }); // Global overload queries
 
 // Limit switch failure indexes
 telemetrySchema.index({ craneId: 1, 'ls1': 1, 'ls2': 1, 'ls3': 1, 'ls4': 1 }); // Limit switch analysis
@@ -189,10 +204,8 @@ const retentionDays = parseInt(process.env.TELEMETRY_RETENTION_DAYS) || 30;
 const retentionSeconds = retentionDays * 24 * 60 * 60;
 telemetrySchema.index({ ts: 1 }, { expireAfterSeconds: retentionSeconds });
 
-// Virtual for overload status
-telemetrySchema.virtual('isOverloaded').get(function() {
-  return this.load > this.swl;
-});
+// Note: DRM device sends OVERLOAD bit directly (OL bit in EVENT message)
+// No need for virtual overload calculation - use the 'overload' field from device
 
 // Virtual for limit switch failures
 telemetrySchema.virtual('hasLimitSwitchFailures').get(function() {
@@ -210,14 +223,19 @@ telemetrySchema.methods.getStatusSummary = function() {
     craneId: this.craneId,
     timestamp: this.ts,
     load: this.load,
-    swl: this.swl,
     utilization: this.util,
-    isOverloaded: this.isOverloaded,
+    overload: this.overload, // OL bit from device
     limitSwitchStatus: {
       ls1: this.ls1,
       ls2: this.ls2,
       ls3: this.ls3,
       ls4: this.ls4
+    },
+    limitSwitchHitCounts: {
+      ls1: this.ls1HitCount || 0,
+      ls2: this.ls2HitCount || 0,
+      ls3: this.ls3HitCount || 0,
+      ls4: this.ls4HitCount || 0
     },
     utilityStatus: this.ut,
     hasFailures: this.hasLimitSwitchFailures || this.hasUtilityFailures,
@@ -273,7 +291,7 @@ telemetrySchema.statics.getTelemetryStats = function(craneId, from, to) {
         maxUtilization: { $max: '$util' },
         overloadCount: {
           $sum: {
-            $cond: [{ $gt: ['$load', '$swl'] }, 1, 0]
+            $cond: [{ $eq: ['$overload', true] }, 1, 0]
           }
         },
         limitSwitchFailures: {

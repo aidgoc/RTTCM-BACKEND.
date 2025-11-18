@@ -248,13 +248,13 @@ router.get('/', authenticateToken, filterDataByRole, smartCache, async (req, res
         }
       },
       
-      // Filter by overload status if requested
+      // Filter by overload status if requested (using OL bit from device, not calculated)
       ...(status === 'overloaded' ? [{
         $match: {
           $expr: {
             $and: [
-              { $ne: ['$lastStatusRaw.load', null] },
-              { $gt: ['$lastStatusRaw.load', '$swl'] }
+              { $ne: ['$lastStatusRaw.overload', null] },
+              { $eq: ['$lastStatusRaw.overload', true] }
             ]
           }
         }
@@ -274,7 +274,6 @@ router.get('/', authenticateToken, filterDataByRole, smartCache, async (req, res
           craneId: 1,
           name: 1,
           location: 1,
-          swl: 1,
           managerUserId: 1,
           supervisorUserId: 1,
           operators: 1,
@@ -350,8 +349,8 @@ router.get('/', authenticateToken, filterDataByRole, smartCache, async (req, res
           },
           isOverloaded: {
             $cond: [
-              { $and: ['$lastStatusRaw', { $ne: ['$lastStatusRaw.load', null] }] },
-              { $gt: ['$lastStatusRaw.load', '$swl'] },
+              { $and: ['$lastStatusRaw', { $ne: ['$lastStatusRaw.overload', null] }] },
+              '$lastStatusRaw.overload',
               false
             ]
           },
@@ -387,7 +386,6 @@ router.get('/', authenticateToken, filterDataByRole, smartCache, async (req, res
             if (craneDoc) {
               const telemetryData = {
                 load: crane.latestTelemetryData.load,
-                swl: crane.latestTelemetryData.swl,
                 util: crane.latestTelemetryData.util,
                 ls1: crane.latestTelemetryData.ls1,
                 ls2: crane.latestTelemetryData.ls2,
@@ -411,7 +409,6 @@ router.get('/', authenticateToken, filterDataByRole, smartCache, async (req, res
         online: crane.online,
         lastSeen: crane.lastSeen,
         currentLoad: crane.currentLoad,
-        swl: crane.swl,
         utilization: crane.utilization,
         isOverloaded: crane.isOverloaded,
         limitSwitchStatus: crane.limitSwitchStatus,
@@ -456,7 +453,6 @@ router.get('/pending', authenticateToken, requirePermission('cranes.read'), asyn
         craneId: crane.craneId,
         name: crane.name,
         location: crane.location,
-        swl: crane.swl,
         discoveredAt: crane.discoveredAt,
         lastSeen: crane.lastSeen,
         telemetryCount: crane.telemetryCount,
@@ -475,7 +471,7 @@ router.get('/pending', authenticateToken, requirePermission('cranes.read'), asyn
 router.post('/pending/:craneId/approve', authenticateToken, requirePermission('cranes.create'), smartInvalidation, async (req, res) => {
   try {
     let { craneId } = req.params;
-    let { name, location, swl, managerUserId, operators, assignedSupervisors, locationData } = req.body;
+    let { name, location, managerUserId, operators, assignedSupervisors, locationData } = req.body; // SWL removed
 
     // Validate required fields
     if (!name || !location) {
@@ -512,7 +508,7 @@ router.post('/pending/:craneId/approve', authenticateToken, requirePermission('c
     const crane = await craneDiscovery.approvePendingCrane(craneId, {
       name,
       location,
-      swl,
+      // SWL removed - device does not send SWL
       managerUserId,
       operators,
       assignedSupervisors,
@@ -543,7 +539,6 @@ router.post('/pending/:craneId/approve', authenticateToken, requirePermission('c
         craneId: crane.craneId,
         name: crane.name,
         location: crane.location,
-        swl: crane.swl,
         isActive: crane.isActive
       }
     });
@@ -636,7 +631,7 @@ router.post('/', authenticateToken, requirePermission('cranes.create'), smartInv
       craneId, 
       name, 
       location, 
-      swl, 
+      // SWL removed - device does not send SWL
       managerUserId, 
       operators = [], 
       assignedSupervisors = [],
@@ -652,10 +647,10 @@ router.post('/', authenticateToken, requirePermission('cranes.create'), smartInv
     } = req.body;
     const currentUser = req.user;
 
-    // Validate required fields
-    if (!craneId || !name || !location || !swl) {
+    // Validate required fields (SWL removed - device does not send SWL)
+    if (!craneId || !name || !location) {
       return res.status(400).json({ 
-        error: 'Crane ID, name, location, and SWL are required' 
+        error: 'Crane ID, name, and location are required' 
       });
     }
 
@@ -764,7 +759,7 @@ router.post('/', authenticateToken, requirePermission('cranes.create'), smartInv
       craneId,
       name,
       location,
-      swl,
+      // SWL removed - device does not send SWL
       managerUserId: finalManagerUserId,
       operators,
       locationData
@@ -774,7 +769,7 @@ router.post('/', authenticateToken, requirePermission('cranes.create'), smartInv
       craneId,
       name,
       location,
-      swl,
+      // SWL removed
       managerUserId: finalManagerUserId,
       operators,
       locationData
@@ -1131,6 +1126,95 @@ router.get('/:id/telemetry/stats', authenticateToken, canAccessCrane('id'), smar
 });
 
 /**
+ * GET /api/cranes/:id/telemetry/history
+ * Get detailed telemetry history for a crane with pagination and filtering
+ * Shows all telemetry fields: TEST, UTIL, OL, LS1-LS4 with timestamps
+ */
+router.get('/:id/telemetry/history', authenticateToken, canAccessCrane('id'), smartCache, async (req, res) => {
+  try {
+    const { from, to, page = 1, limit = 100 } = req.query;
+    const craneId = req.params.id;
+    const skip = (page - 1) * limit;
+
+    // Verify crane exists
+    const crane = await Crane.findOne({ craneId, isActive: true });
+    if (!crane) {
+      return res.status(404).json({ error: 'Crane not found' });
+    }
+
+    // Build query
+    const query = { craneId };
+    
+    // Add date range filter if provided
+    if (from || to) {
+      query.ts = {};
+      if (from) query.ts.$gte = new Date(from);
+      if (to) query.ts.$lte = new Date(to);
+    }
+
+    // Get total count for pagination
+    const total = await Telemetry.countDocuments(query);
+
+    // Get detailed telemetry records with all fields
+    const telemetryRecords = await Telemetry.find(query)
+      .sort({ ts: -1 }) // Most recent first
+      .limit(parseInt(limit))
+      .skip(skip)
+      .select('craneId ts load ls1 ls2 ls3 ls4 ls1HitCount ls2HitCount ls3HitCount ls4HitCount util testMode testType overload operatingMode raw')
+      .lean();
+
+    // Format the response with all details
+    const formattedRecords = telemetryRecords.map(record => ({
+      timestamp: record.ts,
+      date: record.ts.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }),
+      time: record.ts.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+      // TEST bit - Daily limit switch test status
+      testDone: record.testMode === true ? '✅ YES' : '❌ NO',
+      testMode: record.testMode || false,
+      testType: record.testType || null,
+      // UTIL bit - Crane operation status
+      utilization: record.util === 1 ? '✅ WORKING' : '⚫ IDLE',
+      utilBit: record.util || 0,
+      // OL bit - Overload status
+      overload: record.overload === true ? '🚨 OVERLOAD' : '✅ NORMAL',
+      overloadBit: record.overload ? 1 : 0,
+      // Load data (DRM device only sends LOAD, not SWL)
+      load: record.load || 0,
+      // Limit Switches (LS1-LS4) - Current status
+      ls1: record.ls1 || 'UNKNOWN',
+      ls2: record.ls2 || 'UNKNOWN',
+      ls3: record.ls3 || 'UNKNOWN',
+      ls4: record.ls4 || 'UNKNOWN',
+      // Limit Switch Hit Counts (cumulative for the day)
+      ls1HitCount: record.ls1HitCount || 0,
+      ls2HitCount: record.ls2HitCount || 0,
+      ls3HitCount: record.ls3HitCount || 0,
+      ls4HitCount: record.ls4HitCount || 0,
+      // Operating mode
+      operatingMode: record.operatingMode || 'normal',
+      // Raw data (optional, for debugging)
+      // raw: record.raw
+    }));
+
+    res.json({
+      craneId,
+      page: parseInt(page),
+      limit: parseInt(limit),
+      total,
+      totalPages: Math.ceil(total / limit),
+      history: formattedRecords,
+      dateRange: {
+        from: from || 'N/A',
+        to: to || 'N/A'
+      }
+    });
+  } catch (error) {
+    console.error('Get telemetry history error:', error);
+    res.status(500).json({ error: 'Failed to fetch telemetry history' });
+  }
+});
+
+/**
  * POST /api/cranes/sync-telemetry
  * Sync latest telemetry data to all cranes (manager only)
  */
@@ -1149,7 +1233,6 @@ router.post('/sync-telemetry', authenticateToken, requirePermission('cranes.upda
           // Update the crane's lastStatusRaw with the latest telemetry data
           const telemetryData = {
             load: latestTelemetry.load,
-            swl: latestTelemetry.swl,
             util: latestTelemetry.util,
             ls1: latestTelemetry.ls1,
             ls2: latestTelemetry.ls2,
@@ -1241,7 +1324,7 @@ router.get('/:craneId/test-history', authenticateToken, canAccessCrane(), async 
     })
     .sort({ ts: -1 })
     .limit(parseInt(limit))
-    .select('ts load swl ls1 ls2 ls3 ls4 util overload testMode operatingMode testType testResults createdAt')
+    .select('ts load ls1 ls2 ls3 ls4 ls1HitCount ls2HitCount ls3HitCount ls4HitCount util overload testMode operatingMode testType testResults createdAt')
     .lean();
 
     const queryTime = Date.now() - queryStart;

@@ -218,7 +218,7 @@ function parseJSONPayload(payload) {
       craneId: data.id || data.craneId,
       ts: data.ts || data.timestamp,
       load: parseFloat(data.load) || 0,
-      swl: parseFloat(data.swl) || 0,
+      // SWL removed - device does not send SWL
       ls1: data.ls1 || 'UNKNOWN',
       ls2: data.ls2 || 'UNKNOWN',
       ls3: data.ls3 || 'UNKNOWN',
@@ -244,7 +244,7 @@ function parseSemicolonPayload(payload) {
       craneId: data.ID,
       ts: data.TS,
       load: parseFloat(data.LOAD) || 0,
-      swl: parseFloat(data.SWL) || 0,
+      // SWL removed - device does not send SWL
       ls1: data.LS1 || 'UNKNOWN',
       ls2: data.LS2 || 'UNKNOWN',
       ls3: data.LS3 || 'UNKNOWN',
@@ -452,7 +452,7 @@ function normalizeTelemetryData(data) {
     craneId: data.craneId ? String(data.craneId).trim().toUpperCase() : data.craneId,
     ts: data.ts ? String(data.ts).trim() : data.ts,
     load: toNumber(data.load, 0, 2),
-    swl: toNumber(data.swl, 0, 2),
+    // SWL removed - device does not send SWL
     ls1: normalizeStatus(data.ls1),
     ls2: normalizeStatus(data.ls2),
     ls3: normalizeStatus(data.ls3),
