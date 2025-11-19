@@ -41,21 +41,23 @@ const { authenticateToken } = require('./middleware/auth');
 const app = express();
 const server = createServer(app);
 
-// Define allowed origins for Socket.IO (same as Express CORS)
-const allowedSocketOrigins = [
+// Define allowed origins early (used for both Express CORS and Socket.IO)
+const allowedOrigins = [
   env.CORS_ORIGIN,
   env.FRONTEND_URL,
   'http://localhost:3000',
   'https://rttcm-frontend.vercel.app',
   'https://rttcm-frontend-git-main-hng-dgocins-projects.vercel.app',
   'https://drm.logstop.com',
-  'https://www.drm.logstop.com'
-];
+  'https://www.drm.logstop.com',
+  'https://yourdomain.com',
+  'https://www.yourdomain.com'
+].filter(Boolean); // Remove any undefined/null values
 
 const io = new Server(server, {
   cors: {
     origin: (origin, callback) => {
-      if (!origin || allowedSocketOrigins.includes(origin)) {
+      if (!origin || allowedOrigins.includes(origin)) {
         callback(null, true);
       } else {
         callback(new Error('Not allowed by CORS'));
@@ -198,24 +200,14 @@ app.use((req, res, next) => {
 // =============================================================================
 
 // Advanced CORS configuration with security best practices
+// (allowedOrigins is already defined above for Socket.IO)
 app.use(cors({
   // Origin configuration - restrict to specific domains
   origin: (origin, callback) => {
     // Allow requests with no origin (mobile apps, Postman, etc.)
-    if (!origin) return callback(null, true);
-    
-    // Define allowed origins
-    const allowedOrigins = [
-      env.CORS_ORIGIN,
-      env.FRONTEND_URL,
-      'http://localhost:3000',
-      'https://rttcm-frontend.vercel.app', // Production frontend
-      'https://rttcm-frontend-git-main-hng-dgocins-projects.vercel.app', // Vercel preview
-      'https://drm.logstop.com', // Custom domain
-      'https://www.drm.logstop.com', // Custom domain with www
-      'https://yourdomain.com', // Replace with your production domain
-      'https://www.yourdomain.com' // Replace with your production domain
-    ];
+    if (!origin) {
+      return callback(null, true);
+    }
     
     // Check if origin is allowed
     if (allowedOrigins.includes(origin)) {
@@ -224,9 +216,9 @@ app.use(cors({
       logger.warn('CORS blocked request from unauthorized origin', {
         origin: origin,
         allowedOrigins: allowedOrigins,
-        userAgent: origin
+        path: origin
       });
-      callback(new Error('Not allowed by CORS'));
+      callback(new Error(`CORS: Origin ${origin} is not allowed`));
     }
   },
   
@@ -273,21 +265,31 @@ app.use(cors({
   preflightContinue: false
 }));
 
-// Additional CORS security middleware
+// Additional CORS security middleware (backup - main CORS should handle this)
 app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  
   // Handle preflight requests
   if (req.method === 'OPTIONS') {
-    res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
-    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS, HEAD');
-    res.header('Access-Control-Allow-Headers', req.headers['access-control-request-headers'] || '');
-    res.header('Access-Control-Allow-Credentials', 'true');
-    res.header('Access-Control-Max-Age', '86400');
-    return res.status(200).end();
+    // Only set CORS headers if origin is allowed
+    if (origin && allowedOrigins.includes(origin)) {
+      res.header('Access-Control-Allow-Origin', origin);
+      res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS, HEAD');
+      res.header('Access-Control-Allow-Headers', req.headers['access-control-request-headers'] || 'Content-Type, Authorization, X-Requested-With');
+      res.header('Access-Control-Allow-Credentials', 'true');
+      res.header('Access-Control-Max-Age', '86400');
+      return res.status(200).end();
+    } else {
+      // Reject unauthorized origin
+      return res.status(403).json({ error: 'CORS policy: Origin not allowed' });
+    }
   }
   
-  // Add CORS headers to all responses
-  res.header('Access-Control-Allow-Origin', req.headers.origin || env.CORS_ORIGIN);
-  res.header('Access-Control-Allow-Credentials', 'true');
+  // Add CORS headers to all responses (only if origin is allowed)
+  if (origin && allowedOrigins.includes(origin)) {
+    res.header('Access-Control-Allow-Origin', origin);
+    res.header('Access-Control-Allow-Credentials', 'true');
+  }
   
   next();
 });
