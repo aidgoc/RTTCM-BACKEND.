@@ -103,23 +103,14 @@ const DEVICE_LABELS = {
   DM: 'DRM_3400'
 };
 
-const TICKET_PROBLEM_DESCRIPTIONS = {
-  0: 'Trolley Movement',
-  1: 'Hook Movement',
-  2: 'Jib Rotation Problem',
-  3: 'Inclination',
-  4: 'Joystick Clutch',
-  5: 'Motor Overheat Burn',
-  6: 'Gearbox Problem',
-  7: 'Bearing Problem',
-  8: 'Rope Problem',
-  9: 'Motor Brake Not Working',
-  10: 'Electric Problem',
-  11: 'Sensor Problem',
-  12: 'Limit Switch Problem',
-  13: '2-Phase Supply Irregular',
-  14: 'End of Ticket Raise Options'
-};
+// Import ticket types from centralized location
+const { TICKET_TYPES } = require('./utils/ticketTypes');
+
+// Legacy mapping for backward compatibility - now using TICKET_TYPES
+const TICKET_PROBLEM_DESCRIPTIONS = Object.keys(TICKET_TYPES).reduce((acc, key) => {
+  acc[key] = TICKET_TYPES[key].problem;
+  return acc;
+}, {});
 
 const ICON = Object.freeze({
   true: '✅',

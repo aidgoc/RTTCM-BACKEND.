@@ -1,34 +1,33 @@
 /**
- * DRM3400 Ticket Type Mapping
- * Based on manufacturer documentation Table 7
+ * DRM3400 Ticket Type Mapping - MQTT Protocol
+ * Based on legacy ticket descriptions matching MQTT data format
  */
 
 const TICKET_TYPES = {
-  0: { problem: 'Trolley Movement', description: 'Issue with trolley movement mechanism', severity: 'warning' },
-  1: { problem: 'Hoist Movement', description: 'Issue with hoist movement mechanism', severity: 'warning' },
-  2: { problem: 'Slew Movement', description: 'Issue with slewing mechanism', severity: 'warning' },
-  3: { problem: 'Overload', description: 'Load exceeds safe working limit', severity: 'critical' },
-  4: { problem: 'Limit Switch Failure', description: 'One or more limit switches failed', severity: 'critical' },
-  5: { problem: 'Emergency Stop', description: 'Emergency stop activated', severity: 'critical' },
-  6: { problem: 'Power Supply Issue', description: 'Problem with power supply', severity: 'warning' },
-  7: { problem: 'Communication Error', description: 'Communication failure detected', severity: 'warning' },
-  8: { problem: 'Sensor Malfunction', description: 'Sensor reading error', severity: 'warning' },
-  9: { problem: 'Motor Overheating', description: 'Motor temperature too high', severity: 'critical' },
-  10: { problem: 'Hydraulic Pressure', description: 'Hydraulic system pressure issue', severity: 'warning' },
-  11: { problem: 'Brake System', description: 'Brake system malfunction', severity: 'critical' },
-  12: { problem: 'Control System', description: 'Control system error', severity: 'critical' },
-  13: { problem: 'Safety Device', description: 'Safety device triggered', severity: 'critical' },
-  14: { problem: 'Maintenance Required', description: 'Scheduled maintenance due', severity: 'info' },
-  15: { problem: 'Unknown Issue', description: 'Unspecified problem detected', severity: 'warning' }
+  0: { problem: 'Trolley Movement', description: 'Trolley movement issue', severity: 'warning' },
+  1: { problem: 'Hook Movement', description: 'Hook movement issue', severity: 'warning' },
+  2: { problem: 'Jib Rotation Problem', description: 'Jib rotation mechanism problem', severity: 'warning' },
+  3: { problem: 'Inclination', description: 'Crane inclination detected', severity: 'critical' },
+  4: { problem: 'Joystick Clutch', description: 'Joystick clutch malfunction', severity: 'warning' },
+  5: { problem: 'Motor Overheat Burn', description: 'Motor overheating or burn detected', severity: 'critical' },
+  6: { problem: 'Gearbox Problem', description: 'Gearbox malfunction', severity: 'warning' },
+  7: { problem: 'Bearing Problem', description: 'Bearing issue detected', severity: 'warning' },
+  8: { problem: 'Rope Problem', description: 'Rope damage or issue', severity: 'critical' },
+  9: { problem: 'Motor Brake Not Working', description: 'Motor brake system failure', severity: 'critical' },
+  10: { problem: 'Electric Problem', description: 'Electrical system issue', severity: 'warning' },
+  11: { problem: 'Sensor Problem', description: 'Sensor malfunction or reading error', severity: 'warning' },
+  12: { problem: 'Limit Switch Problem', description: 'Limit switch failure', severity: 'critical' },
+  13: { problem: '2-Phase Supply Irregular', description: 'Two-phase power supply irregular', severity: 'critical' },
+  14: { problem: 'End of Ticket Raise Options', description: 'End of ticket raise options', severity: 'info' }
 };
 
 /**
  * Get ticket type information
- * @param {number} typeCode - Ticket type code (0-15)
+ * @param {number} typeCode - Ticket type code (0-14)
  * @returns {object} Ticket type details
  */
 function getTicketType(typeCode) {
-  return TICKET_TYPES[typeCode] || TICKET_TYPES[15];
+  return TICKET_TYPES[typeCode] || TICKET_TYPES[14]; // Default to "End of Ticket Raise Options"
 }
 
 /**

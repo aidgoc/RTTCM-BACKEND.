@@ -85,8 +85,8 @@ router.get('/', authenticateToken, async (req, res) => {
     // Additional filters
     // Only filter by status if it's not 'all'
     if (status && status !== 'all') query.status = status;
-    if (severity) query.severity = severity;
-    if (type) query.type = type;
+    if (severity && severity !== 'all') query.severity = severity;
+    if (type && type !== 'all') query.type = type;
 
     // Date range filter
     if (from || to) {
@@ -96,8 +96,11 @@ router.get('/', authenticateToken, async (req, res) => {
     }
 
     // Debug logging
-    console.log(`🔍 GET /api/tickets - Query:`, JSON.stringify(query, null, 2));
-    console.log(`🔍 User role: ${user.role}, craneId param: ${craneId}`);
+    console.log(`\n🔍 ==================== TICKETS API DEBUG ====================`);
+    console.log(`🔍 GET /api/tickets - User: ${user.email} (${user.role})`);
+    console.log(`🔍 Query Parameters:`, { craneId, status, severity, type });
+    console.log(`🔍 User assignedCranes:`, user.assignedCranes);
+    console.log(`🔍 MongoDB Query:`, JSON.stringify(query, null, 2));
 
     // Get tickets with pagination
     const tickets = await Ticket.find(query)
@@ -109,8 +112,16 @@ router.get('/', authenticateToken, async (req, res) => {
     // Get total count
     const total = await Ticket.countDocuments(query);
     
-    console.log(`🔍 Found ${tickets.length} tickets (total: ${total})`);
+    console.log(`🔍 MongoDB returned ${tickets.length} tickets (total: ${total})`);
     console.log(`🔍 Ticket IDs:`, tickets.map(t => t.ticketId || t._id));
+    console.log(`🔍 Ticket craneIds:`, tickets.map(t => t.craneId));
+    console.log(`🔍 First ticket details:`, tickets[0] ? {
+      id: tickets[0]._id,
+      ticketId: tickets[0].ticketId,
+      craneId: tickets[0].craneId,
+      title: tickets[0].title,
+      status: tickets[0].status
+    } : 'No tickets found');
 
     const ticketData = tickets.map(ticket => {
       const ticketObj = ticket.toObject();
@@ -124,6 +135,7 @@ router.get('/', authenticateToken, async (req, res) => {
     });
 
     console.log(`🔍 Sending ${ticketData.length} tickets to frontend`);
+    console.log(`🔍 ===========================================================\n`);
 
     res.json({
       data: {
