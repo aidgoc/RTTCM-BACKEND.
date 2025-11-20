@@ -399,16 +399,38 @@ class MQTTClient {
       this.isConnected = false;
     });
 
-    this.client.on('message', this.handleMessage.bind(this));
+    this.client.on('message', (topic, message, packet) => {
+      const messageQoS = packet?.qos ?? 'N/A';
+      const isRetained = packet?.retain ?? false;
+      
+      console.log(`📨 MQTT message event triggered - Topic: "${topic}"`);
+      console.log(`   Message QoS: ${messageQoS}, Retain: ${isRetained ? 'Yes' : 'No'}, Size: ${message.length} bytes`);
+      
+      // Log QoS mismatch warnings
+      if (typeof messageQoS === 'number') {
+        if (messageQoS === 0) {
+          console.log(`   ℹ️  Message published with QoS 0 (fire-and-forget, no delivery guarantee)`);
+        } else if (messageQoS === 1) {
+          console.log(`   ✅ Message published with QoS 1 (at least once delivery)`);
+        } else if (messageQoS === 2) {
+          console.log(`   ✅ Message published with QoS 2 (exactly once delivery)`);
+        }
+      }
+      
+      this.handleMessage(topic, message).catch(err => {
+        console.error('❌ Unhandled error in handleMessage:', err);
+        console.error('Error stack:', err.stack);
+      });
+    });
   }
-
+  
   subscribe() {
     if (!this.client || !this.isConnected) return;
 
     // Use configurable topics from environment variables
     const topics = [
-      process.env.TOPIC="868019064209266/1",
-      process.env.TOPIC_TELEMETRY || 'company/+/telemetry',
+      process.env.TOPIC || "868019064209266/1",
+      process.env.TOPIC_TELEMETRY || 'company/+/crane/+/telemetry',
       process.env.TOPIC_STATUS || 'company/+/crane/+/status',
       process.env.TOPIC_LOCATION || 'company/+/crane/+/location',
       process.env.TOPIC_TEST || 'company/+/crane/+/test',
@@ -434,11 +456,59 @@ class MQTTClient {
     }
 
     validTopics.forEach(topic => {
-      this.client.subscribe(topic, (err) => {
+      // Subscribe with QoS 1 to ensure message delivery
+      // Note: QoS 1 subscription will receive both QoS 0 and QoS 1 messages
+      this.client.subscribe(topic, { qos: 1 }, (err, granted) => {
         if (err) {
-          console.error(`Failed to subscribe to ${topic}:`, err);
+          console.error(`❌ Failed to subscribe to ${topic}:`, err);
+          console.error(`   Error details:`, err);
         } else {
-          console.log(`Subscribed to ${topic}`);
+          const grantedQoS = granted?.[0]?.qos ?? 'N/A';
+          const actualQoS = typeof grantedQoS === 'number' ? grantedQoS : 'N/A';
+          
+          console.log(`✅ Subscribed to ${topic} (Requested QoS: 1, Granted QoS: ${actualQoS})`);
+          
+          // Warn if granted QoS differs from requested
+          if (actualQoS !== 1 && actualQoS !== 'N/A') {
+            console.warn(`⚠️  QoS downgraded: Requested QoS 1, but broker granted QoS ${actualQoS}`);
+            console.warn(`   This might indicate broker QoS restrictions or limitations`);
+          }
+          
+          // Warn if granted QoS is 0 (might miss QoS 1 messages)
+          if (actualQoS === 0) {
+            console.warn(`⚠️  Granted QoS is 0: You'll only receive QoS 0 messages on this topic`);
+            console.warn(`   QoS 1 messages might not be delivered`);
+          }
+        }
+      });
+    });
+    
+    console.log(`📋 Total topics subscribed: ${validTopics.length}`);
+    console.log(`👂 Listening for MQTT messages...`);
+    console.log(`💡 Note: QoS 1 subscription should receive both QoS 0 and QoS 1 messages`);
+    console.log(`💡 If no messages received, device might be publishing with QoS 0 and broker may have restrictions`);
+  }
+
+  /**
+   * Subscribe to topics with QoS 0 (for catching QoS 0 messages if broker has restrictions)
+   * This is a diagnostic function - use only if QoS 1 subscriptions aren't receiving messages
+   */
+  subscribeWithQoS0(topics) {
+    if (!this.client || !this.isConnected) {
+      console.error('❌ Cannot subscribe: MQTT client not connected');
+      return;
+    }
+
+    console.log('🔍 [DIAGNOSTIC] Subscribing with QoS 0 to catch all messages...');
+    const topicsArray = Array.isArray(topics) ? topics : [topics];
+    
+    topicsArray.forEach(topic => {
+      this.client.subscribe(topic, { qos: 0 }, (err, granted) => {
+        if (err) {
+          console.error(`❌ Failed to subscribe with QoS 0 to ${topic}:`, err);
+        } else {
+          const grantedQoS = granted?.[0]?.qos ?? 'N/A';
+          console.log(`✅ [QoS 0] Subscribed to ${topic} (Granted QoS: ${grantedQoS})`);
         }
       });
     });
@@ -446,6 +516,8 @@ class MQTTClient {
 
   async handleMessage(topic, message) {
     try {
+      console.log(`🔍 [DEBUG] handleMessage called - Topic: ${topic}, Message length: ${message ? message.length : 0}`);
+      
       // Handle both Buffer (binary) and string payloads
       // If binary 20-byte DRM3400 packet, pass Buffer directly; otherwise convert to string
       const isBinary = Buffer.isBuffer(message) && message.length === 20 && message[0] === 0x24; // 0x24 = '$'
@@ -453,9 +525,9 @@ class MQTTClient {
       const payloadString = isBinary ? message.toString() : payload;
       
       if (isBinary) {
-        console.log(`Received MQTT binary message on ${topic}:`, message.toString('hex'));
+        console.log(`✅ Received MQTT binary message on ${topic}:`, message.toString('hex'));
       } else {
-        console.log(`Received MQTT message on ${topic}:`, payload);
+        console.log(`✅ Received MQTT message on ${topic}:`, payload.substring(0, 200)); // Limit to first 200 chars
       }
 
       let routingTopic = topic;
@@ -1459,17 +1531,26 @@ class MQTTClient {
     }
   }
 
-  publish(topic, message) {
+  publish(topic, message, options = {}) {
     if (!this.client || !this.isConnected) {
       console.error('MQTT client not connected');
       return false;
     }
 
-    this.client.publish(topic, message, (err) => {
+    // Default to QoS 1 for reliability, but allow override
+    const publishOptions = {
+      qos: options.qos !== undefined ? options.qos : 1,
+      retain: options.retain !== undefined ? options.retain : false,
+      ...options
+    };
+
+    this.client.publish(topic, message, publishOptions, (err) => {
       if (err) {
-        console.error(`Failed to publish to ${topic}:`, err);
+        console.error(`❌ Failed to publish to ${topic}:`, err);
+        console.error(`   QoS: ${publishOptions.qos}, Retain: ${publishOptions.retain}`);
       } else {
-        console.log(`Published to ${topic}:`, message);
+        console.log(`✅ Published to ${topic} (QoS: ${publishOptions.qos}, Retain: ${publishOptions.retain}):`, 
+          typeof message === 'string' ? message.substring(0, 100) : `[${message.length} bytes]`);
       }
     });
 
